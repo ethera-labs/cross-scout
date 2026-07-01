@@ -1,0 +1,28 @@
+{
+  "name": "cross-scout",
+  "version": "0.1.0",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "description": "CrossScout - per-rollup cross-chain indexer for the Ethera network",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "bun@1.3.5",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "api": "bun run --cwd apps/api dev",
+    "explorer": "bun run --cwd apps/crossscout dev",
+    "gen:types": "cargo run -p cross-scout-types --features export --bin export-bindings && bun run --cwd packages/sdk build"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  }
+}

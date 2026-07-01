@@ -1,0 +1,32 @@
+[package]
+name = "cross-scout-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "cross_scout_types"
+path = "src/lib.rs"
+
+[[bin]]
+name = "export-bindings"
+path = "src/bin/export_bindings.rs"
+required-features = ["export"]
+
+[features]
+# Enables the ts-rs binding exporter binary. Kept off the default build so a
+# plain `cargo build` never depends on the ts-rs export surface.
+export = []
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+ts-rs.workspace = true
+alloy.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }
+
+[lints]
+workspace = true

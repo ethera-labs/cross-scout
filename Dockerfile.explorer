@@ -1,0 +1,26 @@
+FROM oven/bun:alpine AS builder
+
+WORKDIR /app
+
+COPY package.json bun.lock tsconfig.base.json turbo.json ./
+COPY packages ./packages
+COPY apps ./apps
+
+RUN bun install --frozen-lockfile
+
+ARG VITE_API_URL=http://localhost:3001
+ARG VITE_CHAIN_NAMES=
+
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_CHAIN_NAMES=$VITE_CHAIN_NAMES
+
+RUN bun run --cwd apps/crossscout build
+
+FROM nginx:alpine
+
+COPY --from=builder /app/apps/crossscout/dist /usr/share/nginx/html
+COPY apps/crossscout/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 3000
+
+CMD ["nginx", "-g", "daemon off;"]

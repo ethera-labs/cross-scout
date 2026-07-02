@@ -6,7 +6,6 @@ members = [
   "crates/correlate",
   "crates/ingest-el",
   "crates/ingest-flashblocks",
-  "crates/ingest-sbcp",
   "crates/ingest-settlement",
   "crates/indexer-core",
 ]
@@ -60,6 +59,9 @@ sqlx = { version = "0.8", default-features = false, features = [
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 bigdecimal = "0.4"
 
+# protocol spec
+ethera-spec = { git = "https://github.com/ethera-labs/specs.git", branch = "feat/compose-rs" }
+
 # ethereum
 alloy = { version = "2", default-features = false, features = [
   "std",
@@ -70,6 +72,10 @@ alloy = { version = "2", default-features = false, features = [
   "rpc-types-eth",
   "sol-types",
   "network",
+  "contract",
+  "consensus",
+  "eips",
+  "k256",
   "reqwest-rustls-tls",
 ] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
@@ -83,7 +89,6 @@ cross-scout-store = { path = "crates/store" }
 cross-scout-correlate = { path = "crates/correlate" }
 cross-scout-ingest-el = { path = "crates/ingest-el" }
 cross-scout-ingest-flashblocks = { path = "crates/ingest-flashblocks" }
-cross-scout-ingest-sbcp = { path = "crates/ingest-sbcp" }
 cross-scout-ingest-settlement = { path = "crates/ingest-settlement" }
 
 [profile.release]

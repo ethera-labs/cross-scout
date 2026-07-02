@@ -4,4 +4,4 @@ import type { RouteVolume } from "./RouteVolume";
 /**
  * Network-wide totals for `GET /v1/stats`.
  */
-export type NetworkStats = { hostChain: number, totalXts: bigint, pending: bigint, validated: bigint, finalized: bigint, failed: bigint, superblocks: bigint, avgProveMs: number | null, routes: Array<RouteVolume>, };
+export type NetworkStats = { hostChain: number, totalXts: bigint, pending: bigint, committed: bigint, validated: bigint, finalized: bigint, failed: bigint, superblocks: bigint, avgProveMs: number | null, routes: Array<RouteVolume>, };

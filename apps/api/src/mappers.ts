@@ -7,7 +7,6 @@ import type {
   MailboxMessage,
   Superblock,
   SuperblockChain,
-  Vote,
   Xt,
 } from '@cross-scout/sdk';
 import { numOrNull, toHex, toIso, toIsoOrNull } from './hex.ts';
@@ -15,15 +14,17 @@ import { numOrNull, toHex, toIso, toIsoOrNull } from './hex.ts';
 // Rows are dynamically shaped; `any` here is deliberate and contained.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+function numberArray(value: ArrayLike<number> | null | undefined): number[] {
+  return Array.from(value ?? [], Number);
+}
+
 export function toXt(r: any): Xt {
   return {
     xtHash: toHex(r.xt_hash)!,
     instanceId: toHex(r.instance_id)!,
-    period: numOrNull(r.period),
-    seq: numOrNull(r.seq),
     srcChain: numOrNull(r.src_chain),
     dstChain: numOrNull(r.dst_chain),
-    chains: (r.chains ?? []).map(Number),
+    chains: numberArray(r.chains),
     sender: toHex(r.sender),
     valueWei: r.value_wei != null ? String(r.value_wei) : null,
     status: r.status,
@@ -34,26 +35,14 @@ export function toXt(r: any): Xt {
   };
 }
 
-export function toVote(r: any): Vote {
-  return {
-    instanceId: toHex(r.instance_id)!,
-    chainId: Number(r.chain_id),
-    commit: Boolean(r.commit_vote),
-    votedAt: toIso(r.voted_at),
-  };
-}
-
-export function toInstance(r: any, votes: Vote[]): Instance {
+export function toInstance(r: any): Instance {
   return {
     instanceId: toHex(r.instance_id)!,
     xtHash: toHex(r.xt_hash),
-    period: numOrNull(r.period),
-    seq: numOrNull(r.seq),
-    participants: (r.participants ?? []).map(Number),
+    participants: numberArray(r.participants),
     decision: r.decision,
     startedAt: toIsoOrNull(r.started_at),
     decidedAt: toIsoOrNull(r.decided_at),
-    votes,
   };
 }
 
@@ -64,8 +53,9 @@ export function toMailbox(r: any): MailboxMessage {
     srcChain: numOrNull(r.src_chain),
     dstChain: numOrNull(r.dst_chain),
     session: toHex(r.session),
-    header: toHex(r.header),
-    bodyHash: toHex(r.body_hash),
+    sender: toHex(r.sender),
+    receiver: toHex(r.receiver),
+    label: r.label ?? null,
     xtHash: toHex(r.xt_hash),
     superblockNumber: numOrNull(r.superblock_number),
     chainId: Number(r.chain_id),
@@ -91,9 +81,8 @@ export function toSuperblock(r: any, chains: SuperblockChain[]): Superblock {
     number: Number(r.number),
     hash: toHex(r.hash),
     parentHash: toHex(r.parent_hash),
-    period: numOrNull(r.period),
     status: r.status,
-    mailboxRoot: toHex(r.mailbox_root),
+    rootClaim: toHex(r.root_claim),
     xtCount: Number(r.xt_count),
     proveMs: numOrNull(r.prove_ms),
     l1Tx: toHex(r.l1_tx),

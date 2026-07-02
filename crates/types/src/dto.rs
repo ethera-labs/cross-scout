@@ -8,19 +8,21 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// Safety status of an XT, matching the `xts.status` column.
+/// User-facing lifecycle status of an XT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
 #[serde(rename_all = "snake_case")]
 pub enum XtStatus {
     Pending,
-    Unsafe,
+    Committed,
     Validated,
     Finalized,
     Failed,
 }
 
-/// Outcome of an SBCP 2-phase-commit instance.
+/// Outcome of a cross-chain session. Derived from observable effects: a
+/// mailbox write in a sealed block commits the session; a pre-confirmation
+/// that never seals within the stall window aborts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
 #[serde(rename_all = "snake_case")]
@@ -30,7 +32,8 @@ pub enum Decision {
     Abort,
 }
 
-/// Mailbox message direction relative to the host rollup.
+/// Mailbox message direction relative to the chain it was observed on:
+/// `out` is an outbox write (message leaving), `in` an inbox write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
 #[serde(rename_all = "snake_case")]
@@ -49,15 +52,13 @@ pub enum SuperblockStatus {
     Finalized,
 }
 
-/// One cross-chain transaction.
+/// One cross-chain transaction, keyed by its mailbox session.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct Xt {
     pub xt_hash: String,
     pub instance_id: String,
-    pub period: Option<i64>,
-    pub seq: Option<i32>,
     pub src_chain: Option<i32>,
     pub dst_chain: Option<i32>,
     pub chains: Vec<i32>,
@@ -65,38 +66,24 @@ pub struct Xt {
     /// Decimal string (wei can exceed 2^53).
     pub value_wei: Option<String>,
     pub status: XtStatus,
-    /// Lifecycle stage, 1..=9.
+    /// Lifecycle stage, 1..=9 or the terminal 255.
     pub stage: u8,
     pub superblock_number: Option<i64>,
     pub first_seen_at: String,
     pub updated_at: String,
 }
 
-/// A single sequencer's 2PC vote inside an instance.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "generated/")]
-#[serde(rename_all = "camelCase")]
-pub struct Vote {
-    pub instance_id: String,
-    pub chain_id: i32,
-    pub commit: bool,
-    pub voted_at: String,
-}
-
-/// An SBCP composability instance and its collected votes.
+/// A cross-chain session and its derived decision.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct Instance {
     pub instance_id: String,
     pub xt_hash: Option<String>,
-    pub period: Option<i64>,
-    pub seq: Option<i32>,
     pub participants: Vec<i32>,
     pub decision: Decision,
     pub started_at: Option<String>,
     pub decided_at: Option<String>,
-    pub votes: Vec<Vote>,
 }
 
 /// A mailbox message crossing between rollups.
@@ -109,8 +96,9 @@ pub struct MailboxMessage {
     pub src_chain: Option<i32>,
     pub dst_chain: Option<i32>,
     pub session: Option<String>,
-    pub header: Option<String>,
-    pub body_hash: Option<String>,
+    pub sender: Option<String>,
+    pub receiver: Option<String>,
+    pub label: Option<String>,
     pub xt_hash: Option<String>,
     pub superblock_number: Option<i64>,
     pub chain_id: i32,
@@ -140,9 +128,9 @@ pub struct Superblock {
     pub number: i64,
     pub hash: Option<String>,
     pub parent_hash: Option<String>,
-    pub period: Option<i64>,
     pub status: SuperblockStatus,
-    pub mailbox_root: Option<String>,
+    /// Super-root claim the settlement dispute game was created with.
+    pub root_claim: Option<String>,
     pub xt_count: i32,
     pub prove_ms: Option<i32>,
     pub l1_tx: Option<String>,
@@ -183,6 +171,7 @@ pub struct NetworkStats {
     pub host_chain: i32,
     pub total_xts: i64,
     pub pending: i64,
+    pub committed: i64,
     pub validated: i64,
     pub finalized: i64,
     pub failed: i64,
@@ -210,8 +199,6 @@ pub enum StreamEvent {
     NewXt { xt: Xt },
     /// An existing XT advanced (stage/status/superblock changed).
     XtUpdated { xt: Xt },
-    /// A sequencer vote landed.
-    Vote { vote: Vote },
     /// A superblock changed settlement status.
     SuperblockUpdated { superblock: Superblock },
 }

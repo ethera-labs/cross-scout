@@ -179,6 +179,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-rlp",
  "borsh",
+ "k256",
  "serde",
  "thiserror 2.0.18",
 ]
@@ -531,6 +532,7 @@ version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63ec265e5d65d725175f6ca7711c970824c90ef9c0d1f1973711d4150ee612dd"
 dependencies = [
+ "alloy-json-abi",
  "alloy-sol-macro-input",
  "const-hex",
  "heck",
@@ -549,12 +551,14 @@ version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89bf01077f18650876cfa682eb1f949967b5cde03f1a51c955c469d2c9b4aa67"
 dependencies = [
+ "alloy-json-abi",
  "const-hex",
  "dunce",
  "heck",
  "macro-string",
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 2.0.118",
  "syn-solidity",
 ]
@@ -1381,6 +1385,7 @@ name = "cross-scout-correlate"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "chrono",
  "cross-scout-store",
  "cross-scout-types",
  "thiserror 1.0.69",
@@ -1399,7 +1404,6 @@ dependencies = [
  "cross-scout-correlate",
  "cross-scout-ingest-el",
  "cross-scout-ingest-flashblocks",
- "cross-scout-ingest-sbcp",
  "cross-scout-ingest-settlement",
  "cross-scout-store",
  "cross-scout-types",
@@ -1428,6 +1432,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "chrono",
+ "cross-scout-ingest-el",
  "cross-scout-types",
  "futures",
  "serde",
@@ -1438,23 +1443,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "cross-scout-ingest-sbcp"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "async-trait",
- "cross-scout-ingest-el",
- "cross-scout-types",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "cross-scout-ingest-settlement"
 version = "0.1.0"
 dependencies = [
  "alloy",
  "async-trait",
+ "chrono",
  "cross-scout-ingest-el",
  "cross-scout-types",
  "tokio",
@@ -1484,6 +1478,7 @@ dependencies = [
  "alloy",
  "async-trait",
  "chrono",
+ "ethera-spec",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -1814,6 +1809,11 @@ dependencies = [
  "home",
  "windows-sys 0.48.0",
 ]
+
+[[package]]
+name = "ethera-spec"
+version = "0.1.0"
+source = "git+https://github.com/ethera-labs/specs.git?branch=feat%2Fcompose-rs#ae409bd980adc6bd08aaa36cf4e848631de4cf43"
 
 [[package]]
 name = "event-listener"

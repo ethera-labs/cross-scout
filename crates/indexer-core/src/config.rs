@@ -21,6 +21,49 @@ fn addr(key: &str) -> Address {
         .unwrap_or(Address::ZERO)
 }
 
+fn opt_addr(key: &str) -> Option<Address> {
+    env::var(key).ok().and_then(|v| v.parse().ok())
+}
+
+/// Comma-separated `0x…` addresses.
+fn addr_list(key: &str) -> Vec<Address> {
+    env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|s| s.trim().parse().ok())
+        .collect()
+}
+
+/// `latest` (or empty) starts at the current head; a number backfills from it.
+fn start_block(key: &str) -> Option<u64> {
+    match env::var(key) {
+        Ok(v) if !v.trim().is_empty() && v.trim() != "latest" => v.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+/// One `chain_id=url` endpoint.
+#[derive(Clone, Debug)]
+pub struct ChainEndpoint {
+    pub chain_id: i32,
+    pub url: String,
+}
+
+/// Comma-separated `<chain_id>=<url>` pairs, one per participating rollup.
+fn endpoint_list(key: &str) -> Vec<ChainEndpoint> {
+    env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|pair| {
+            let (chain, url) = pair.trim().split_once('=')?;
+            Some(ChainEndpoint {
+                chain_id: chain.trim().parse().ok()?,
+                url: url.trim().to_string(),
+            })
+        })
+        .collect()
+}
+
 /// Fully-resolved indexer configuration.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -32,23 +75,35 @@ pub struct Config {
     pub database_url: String,
     pub redis_url: String,
 
-    /// op-reth EL RPC - mailbox + SBCP coordinator logs live here.
-    pub el_rpc_url: String,
-    /// op-rbuilder flashblocks websocket.
-    pub flashblocks_ws_url: String,
+    /// Per-rollup execution RPCs (host + counterparties) - mailbox and bridge
+    /// logs are polled on every listed chain so both legs of a session are
+    /// observed.
+    pub el_rpc_urls: Vec<ChainEndpoint>,
+    /// Per-rollup op-rbuilder flashblocks websockets. Optional: without them
+    /// the indexer still sees everything, just without pre-confirmations.
+    pub flashblocks_ws_urls: Vec<ChainEndpoint>,
     /// L1 settlement RPC.
     pub l1_rpc_url: String,
 
+    /// `UniversalBridgeMailbox`, deployed at the same address on every rollup.
     pub mailbox_address: Address,
-    pub sbcp_coordinator_address: Address,
-    pub settlement_address: Address,
+    /// `ComposeL2ToL2Bridge` (and any additional authorized bridges).
+    pub bridge_addresses: Vec<Address>,
+    /// L1 `DisputeGameFactory` the publisher settles superblocks through.
+    pub dispute_game_factory: Address,
+    /// L1 `ComposeAnchorStateRegistry`; unset disables finalization tracking.
+    pub anchor_state_registry: Option<Address>,
+    /// Compose dispute game type (publisher's `COMPOSE_GAME_TYPE`).
+    pub game_type: u32,
 
-    pub el_start_block: u64,
-    pub l1_start_block: u64,
+    /// `None` starts ingestion at the current head (`EL_START_BLOCK=latest`).
+    pub el_start_block: Option<u64>,
+    pub l1_start_block: Option<u64>,
     pub poll_interval_ms: u64,
-
-    /// Drive the pipeline from synthetic in-memory sources (no rollup infra).
-    pub use_mock_sources: bool,
+    /// Max blocks per `eth_getLogs` call.
+    pub log_max_range: u64,
+    /// Seconds before an XT without a sealed inclusion is rolled back.
+    pub stall_timeout_secs: i64,
 
     pub db_max_conns: u32,
 }
@@ -56,23 +111,26 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Self {
         Self {
-            host_chain_id: parse("HOST_CHAIN_ID", 8453),
+            host_chain_id: parse("HOST_CHAIN_ID", 0),
             l1_chain_id: parse("L1_CHAIN_ID", 1),
             database_url: var(
                 "DATABASE_URL",
                 "postgres://crossscout:crossscout@localhost:5432/crossscout",
             ),
             redis_url: var("REDIS_URL", "redis://localhost:6379"),
-            el_rpc_url: var("EL_RPC_URL", "http://localhost:8545"),
-            flashblocks_ws_url: var("FLASHBLOCKS_WS_URL", "ws://localhost:1111"),
+            el_rpc_urls: endpoint_list("EL_RPC_URLS"),
+            flashblocks_ws_urls: endpoint_list("FLASHBLOCKS_WS_URLS"),
             l1_rpc_url: var("L1_RPC_URL", "http://localhost:8546"),
             mailbox_address: addr("MAILBOX_ADDRESS"),
-            sbcp_coordinator_address: addr("SBCP_COORDINATOR_ADDRESS"),
-            settlement_address: addr("SETTLEMENT_ADDRESS"),
-            el_start_block: parse("EL_START_BLOCK", 0),
-            l1_start_block: parse("L1_START_BLOCK", 0),
+            bridge_addresses: addr_list("BRIDGE_ADDRESSES"),
+            dispute_game_factory: addr("DISPUTE_GAME_FACTORY_ADDRESS"),
+            anchor_state_registry: opt_addr("ANCHOR_STATE_REGISTRY_ADDRESS"),
+            game_type: parse("COMPOSE_GAME_TYPE", 5555),
+            el_start_block: start_block("EL_START_BLOCK"),
+            l1_start_block: start_block("L1_START_BLOCK"),
             poll_interval_ms: parse("POLL_INTERVAL_MS", 1000),
-            use_mock_sources: parse("USE_MOCK_SOURCES", true),
+            log_max_range: parse("LOG_MAX_RANGE", 5000),
+            stall_timeout_secs: parse("STALL_TIMEOUT_SECONDS", cross_scout_types::PERIOD_SECONDS),
             db_max_conns: parse("DB_MAX_CONNS", 10),
         }
     }

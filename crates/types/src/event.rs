@@ -1,11 +1,16 @@
 //! Normalized domain events.
 //!
-//! Each ingestion crate decodes its raw on-chain signals into a [`DomainEvent`]
-//! - a [`EventMeta`] (provenance, for idempotency + reorg handling) plus an
-//! [`EventKind`] (the decoded payload). The correlation engine consumes a
-//! single ordered stream of these regardless of which source produced them.
+//! Each ingestion crate decodes its raw on-chain signals into a
+//! [`DomainEvent`]: a [`EventMeta`] (provenance, for idempotency + reorg
+//! handling) plus an [`EventKind`] (the decoded payload). The correlation
+//! engine consumes a single ordered stream of these regardless of which
+//! source produced them.
+//!
+//! The cross-chain session id (`bytes32`-widened `sessionId` from the mailbox
+//! headers) is the on-chain identity of an XT: every signal that belongs to
+//! the same XT carries the same session, and the engine joins on it.
 
-use alloy::primitives::{Address, Bytes, B256, U256};
+use alloy::primitives::{Address, B256, U256};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -23,92 +28,81 @@ pub struct EventMeta {
     pub safe: bool,
 }
 
-/// The decoded payload of an event, grouped by emitter family: mailbox, SBCP,
-/// inclusion and settlement.
+/// One rollup's state transition inside a superblock, decoded from the
+/// publisher's dispute-game `extraData` (`BootInfo` + super-root output).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChainTransition {
+    pub chain_id: i32,
+    pub l2_block: i64,
+    pub pre_root: B256,
+    pub post_root: B256,
+    pub config_hash: B256,
+}
+
+/// The decoded payload of an event, grouped by emitter family: bridge
+/// ingress, mailbox, inclusion and L1 settlement.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum EventKind {
-    // ── ingress (Shared Publisher mempool) ────────────────────────
+    // ── ingress (bridge call carrying a session) ──────────────────
+    /// A cross-chain bridge call was observed - either pre-confirmed in a
+    /// flashblock (`meta.safe = false`) or emitted by a sealed bridge log.
     XtRequested {
-        xt_hash: B256,
-        instance_id: B256,
-        period: i64,
-        seq: i32,
+        session: B256,
         src_chain: i32,
         dst_chain: i32,
-        chains: Vec<i32>,
         sender: Address,
         value_wei: U256,
     },
 
-    // ── SBCP / 2-phase commit ─────────────────────────────────────
-    InstanceStarted {
-        instance_id: B256,
-        period: i64,
-        seq: i32,
-        chains: Vec<i32>,
-        xt_hash: B256,
-    },
-    SequencerVoted {
-        instance_id: B256,
-        chain_id: i32,
-        commit: bool,
-    },
-    InstanceDecided {
-        instance_id: B256,
-        commit: bool,
-    },
-
-    // ── mailbox (EL logs) ─────────────────────────────────────────
+    // ── mailbox (UniversalBridgeMailbox logs + header lookups) ────
+    /// `NewOutboxKey` on the source rollup: the message left its outbox.
     MessageDispatched {
-        id: B256,
-        dst_chain_id: i32,
+        key: B256,
         session: B256,
-        header: Bytes,
-        body_hash: B256,
+        src_chain: i32,
+        dst_chain: i32,
+        sender: Address,
+        receiver: Address,
+        label: String,
     },
+    /// `NewInboxKey` on the destination rollup: the message reached its inbox.
     MessageDelivered {
-        id: B256,
-        src_chain_id: i32,
+        key: B256,
         session: B256,
-    },
-    OutboxRootUpdated {
-        root: B256,
-        index: i64,
-    },
-    InboxRootUpdated {
-        root: B256,
-        index: i64,
+        src_chain: i32,
+        dst_chain: i32,
+        sender: Address,
+        receiver: Address,
+        label: String,
     },
 
-    // ── inclusion (flashblocks + sealed blocks) ───────────────────
-    Flashblock {
-        chain_id: i32,
-        xt_hash: B256,
-        index: i32,
-    },
+    // ── inclusion (sealed heads) ──────────────────────────────────
     BlockSealed {
         chain_id: i32,
         number: i64,
         hash: B256,
+        parent_hash: B256,
         state_root: B256,
     },
 
-    // ── superblock / settlement ───────────────────────────────────
+    // ── superblock / settlement (L1 dispute games) ────────────────
+    /// `DisputeGameCreated` for the compose game type: the publisher settled
+    /// a superblock on L1.
     SuperblockProposed {
         number: i64,
-        mailbox_root: B256,
+        /// Super-root claim the game was created with.
+        root_claim: B256,
+        /// keccak of the ABI-encoded aggregation outputs - the superblock
+        /// batch hash the next superblock references as its parent.
+        hash: B256,
+        parent_hash: B256,
         chains: Vec<i32>,
+        transitions: Vec<ChainTransition>,
     },
-    SuperblockValidated {
-        number: i64,
-        proof_id: B256,
-    },
-    SuperblockFinalized {
-        number: i64,
-        l1_tx: B256,
-        l1_block: i64,
-    },
+    /// The compose anchor state registry advanced to (or past) this
+    /// superblock: its game resolved and the anchor was accepted.
+    SuperblockFinalized { number: i64, anchor_root: B256 },
 }
 
 /// A decoded event with full provenance.
@@ -124,23 +118,12 @@ impl DomainEvent {
         Self { meta, kind }
     }
 
-    /// The instance this event pertains to, if it names one.
-    pub fn instance_id(&self) -> Option<B256> {
+    /// The session (== XT identity) this event pertains to, if it names one.
+    pub fn session(&self) -> Option<B256> {
         match &self.kind {
-            EventKind::XtRequested { instance_id, .. }
-            | EventKind::InstanceStarted { instance_id, .. }
-            | EventKind::SequencerVoted { instance_id, .. }
-            | EventKind::InstanceDecided { instance_id, .. } => Some(*instance_id),
-            _ => None,
-        }
-    }
-
-    /// The XT this event pertains to, if it names one directly.
-    pub fn xt_hash(&self) -> Option<B256> {
-        match &self.kind {
-            EventKind::XtRequested { xt_hash, .. }
-            | EventKind::InstanceStarted { xt_hash, .. }
-            | EventKind::Flashblock { xt_hash, .. } => Some(*xt_hash),
+            EventKind::XtRequested { session, .. }
+            | EventKind::MessageDispatched { session, .. }
+            | EventKind::MessageDelivered { session, .. } => Some(*session),
             _ => None,
         }
     }
@@ -149,17 +132,10 @@ impl DomainEvent {
     pub fn kind_tag(&self) -> &'static str {
         match &self.kind {
             EventKind::XtRequested { .. } => "xt_requested",
-            EventKind::InstanceStarted { .. } => "instance_started",
-            EventKind::SequencerVoted { .. } => "sequencer_voted",
-            EventKind::InstanceDecided { .. } => "instance_decided",
             EventKind::MessageDispatched { .. } => "message_dispatched",
             EventKind::MessageDelivered { .. } => "message_delivered",
-            EventKind::OutboxRootUpdated { .. } => "outbox_root_updated",
-            EventKind::InboxRootUpdated { .. } => "inbox_root_updated",
-            EventKind::Flashblock { .. } => "flashblock",
             EventKind::BlockSealed { .. } => "block_sealed",
             EventKind::SuperblockProposed { .. } => "superblock_proposed",
-            EventKind::SuperblockValidated { .. } => "superblock_validated",
             EventKind::SuperblockFinalized { .. } => "superblock_finalized",
         }
     }

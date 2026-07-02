@@ -15,7 +15,6 @@ import type {
 export interface ListXtsParams {
   status?: string;
   chain?: number;
-  period?: number;
   limit?: number;
   cursor?: string;
 }
@@ -49,6 +48,10 @@ export class CrossScoutClient {
 
   getInstance(id: string): Promise<Instance> {
     return this.get<Instance>(`/v1/instances/${id}`);
+  }
+
+  listSuperblocks(limit?: number): Promise<Superblock[]> {
+    return this.get<Superblock[]>('/v1/superblocks', limit ? { limit } : undefined);
   }
 
   getSuperblock(number: number): Promise<Superblock> {

@@ -7,12 +7,12 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use cross_scout_types::{
     Decision, Direction, Instance, MailboxMessage, Superblock, SuperblockChain, SuperblockStatus,
-    Vote, Xt, XtStatus,
+    Xt, XtStatus,
 };
 
 fn xt_status(s: &str) -> XtStatus {
     match s {
-        "unsafe" => XtStatus::Unsafe,
+        "committed" => XtStatus::Committed,
         "validated" => XtStatus::Validated,
         "finalized" => XtStatus::Finalized,
         "failed" => XtStatus::Failed,
@@ -47,8 +47,6 @@ fn superblock_status(s: &str) -> SuperblockStatus {
 pub struct XtRow {
     pub xt_hash: Vec<u8>,
     pub instance_id: Vec<u8>,
-    pub period: Option<i64>,
-    pub seq: Option<i32>,
     pub src_chain: Option<i32>,
     pub dst_chain: Option<i32>,
     pub chains: Vec<i32>,
@@ -66,8 +64,6 @@ impl XtRow {
         Xt {
             xt_hash: hex_prefixed(&self.xt_hash),
             instance_id: hex_prefixed(&self.instance_id),
-            period: self.period,
-            seq: self.seq,
             src_chain: self.src_chain,
             dst_chain: self.dst_chain,
             chains: self.chains,
@@ -83,30 +79,9 @@ impl XtRow {
 }
 
 #[derive(sqlx::FromRow)]
-pub struct VoteRow {
-    pub instance_id: Vec<u8>,
-    pub chain_id: i32,
-    pub commit_vote: bool,
-    pub voted_at: DateTime<Utc>,
-}
-
-impl VoteRow {
-    pub fn into_dto(self) -> Vote {
-        Vote {
-            instance_id: hex_prefixed(&self.instance_id),
-            chain_id: self.chain_id,
-            commit: self.commit_vote,
-            voted_at: rfc3339(&self.voted_at),
-        }
-    }
-}
-
-#[derive(sqlx::FromRow)]
 pub struct InstanceRow {
     pub instance_id: Vec<u8>,
     pub xt_hash: Option<Vec<u8>>,
-    pub period: Option<i64>,
-    pub seq: Option<i32>,
     pub participants: Vec<i32>,
     pub decision: String,
     pub started_at: Option<DateTime<Utc>>,
@@ -114,17 +89,14 @@ pub struct InstanceRow {
 }
 
 impl InstanceRow {
-    pub fn into_dto(self, votes: Vec<Vote>) -> Instance {
+    pub fn into_dto(self) -> Instance {
         Instance {
             instance_id: hex_prefixed(&self.instance_id),
             xt_hash: opt_hex(&self.xt_hash),
-            period: self.period,
-            seq: self.seq,
             participants: self.participants,
             decision: decision(&self.decision),
             started_at: opt_rfc3339(&self.started_at),
             decided_at: opt_rfc3339(&self.decided_at),
-            votes,
         }
     }
 }
@@ -136,8 +108,9 @@ pub struct MailboxRow {
     pub src_chain: Option<i32>,
     pub dst_chain: Option<i32>,
     pub session: Option<Vec<u8>>,
-    pub header: Option<Vec<u8>>,
-    pub body_hash: Option<Vec<u8>>,
+    pub sender: Option<Vec<u8>>,
+    pub receiver: Option<Vec<u8>>,
+    pub label: Option<String>,
     pub xt_hash: Option<Vec<u8>>,
     pub superblock_number: Option<i64>,
     pub chain_id: i32,
@@ -154,8 +127,9 @@ impl MailboxRow {
             src_chain: self.src_chain,
             dst_chain: self.dst_chain,
             session: opt_hex(&self.session),
-            header: opt_hex(&self.header),
-            body_hash: opt_hex(&self.body_hash),
+            sender: opt_hex(&self.sender),
+            receiver: opt_hex(&self.receiver),
+            label: self.label,
             xt_hash: opt_hex(&self.xt_hash),
             superblock_number: self.superblock_number,
             chain_id: self.chain_id,
@@ -194,9 +168,8 @@ pub struct SuperblockRow {
     pub number: i64,
     pub hash: Option<Vec<u8>>,
     pub parent_hash: Option<Vec<u8>>,
-    pub period: Option<i64>,
     pub status: String,
-    pub mailbox_root: Option<Vec<u8>>,
+    pub root_claim: Option<Vec<u8>>,
     pub xt_count: i32,
     pub prove_ms: Option<i32>,
     pub l1_tx: Option<Vec<u8>>,
@@ -212,9 +185,8 @@ impl SuperblockRow {
             number: self.number,
             hash: opt_hex(&self.hash),
             parent_hash: opt_hex(&self.parent_hash),
-            period: self.period,
             status: superblock_status(&self.status),
-            mailbox_root: opt_hex(&self.mailbox_root),
+            root_claim: opt_hex(&self.root_claim),
             xt_count: self.xt_count,
             prove_ms: self.prove_ms,
             l1_tx: opt_hex(&self.l1_tx),

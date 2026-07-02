@@ -1,13 +1,13 @@
 -- CrossScout indexer - canonical schema (Postgres).
--- Core entities: XTs, instances, votes, mailbox messages, superblocks and
--- their per-chain state transitions.
+-- Core entities: XTs (keyed by mailbox session), instances, mailbox messages,
+-- superblocks and their per-chain state transitions.
 -- All hashes/addresses are stored as `bytea`; the api hex-encodes them.
 
 -- ── raw event log ─────────────────────────────────────────────────
 -- Idempotency backbone: every decoded on-chain event is keyed by its
 -- log coordinates so replays and overlapping backfills are safe. The
 -- correlation engine reads/writes canonical rows below off the back of
--- these. `safe = false` marks flashblock pre-confirmations (unsafe head).
+-- these. `safe = false` marks flashblock pre-confirmations.
 create table if not exists raw_events (
   chain_id     int    not null,
   block_number bigint not null,
@@ -35,19 +35,18 @@ create table if not exists chain_heads (
 );
 
 -- ── cross-chain transactions ──────────────────────────────────────
--- One row per XTRequest.
+-- One row per session; `xt_hash` and `instance_id` are both the bytes32-
+-- widened mailbox session id.
 create table if not exists xts (
   xt_hash           bytea primary key,
   instance_id       bytea not null,
-  period            bigint,
-  seq               int,
   src_chain         int,
   dst_chain         int,
   chains            int[]  not null default '{}',
   sender            bytea,
   value_wei         numeric,
-  status            text   not null default 'pending',  -- pending|unsafe|validated|finalized|failed
-  stage             smallint not null default 1,        -- 1..9
+  status            text   not null default 'pending',  -- pending|committed|validated|finalized|failed
+  stage             smallint not null default 1,        -- 1..9 | 255
   superblock_number bigint,
   block_hash        bytea,                               -- inclusion block (reorg anchor)
   first_seen_at     timestamptz not null default now(),
@@ -55,31 +54,20 @@ create table if not exists xts (
 );
 create index if not exists xts_instance_idx    on xts (instance_id);
 create index if not exists xts_status_idx      on xts (status);
-create index if not exists xts_period_idx       on xts (period desc);
 create index if not exists xts_src_dst_idx      on xts (src_chain, dst_chain);
 create index if not exists xts_superblock_idx   on xts (superblock_number);
 create index if not exists xts_updated_idx      on xts (updated_at desc);
 
--- ── composability instances (SBCP / 2-phase commit) ───────────────
+-- ── cross-chain sessions (decision surface) ───────────────────────
 create table if not exists instances (
   instance_id  bytea primary key,
   xt_hash      bytea references xts (xt_hash),
-  period       bigint,
-  seq          int,
   participants int[] not null default '{}',
   decision     text  not null default 'pending',        -- commit|abort|pending
   started_at   timestamptz,
   decided_at   timestamptz
 );
 create index if not exists instances_xt_idx on instances (xt_hash);
-
-create table if not exists votes (
-  instance_id bytea not null,
-  chain_id    int   not null,
-  commit_vote bool  not null,
-  voted_at    timestamptz not null default now(),
-  primary key (instance_id, chain_id)
-);
 
 -- ── mailbox messages (idempotent on log coords) ───────────────────
 create table if not exists mailbox_messages (
@@ -88,8 +76,9 @@ create table if not exists mailbox_messages (
   src_chain         int,
   dst_chain         int,
   session           bytea,
-  header            bytea,
-  body_hash         bytea,
+  sender            bytea,
+  receiver          bytea,
+  label             text,
   xt_hash           bytea,
   superblock_number bigint,
   chain_id          int    not null,
@@ -107,9 +96,8 @@ create table if not exists superblocks (
   number        bigint primary key,
   hash          bytea,
   parent_hash   bytea,
-  period        bigint,
   status        text not null default 'proposed',        -- proposed|validated|finalized
-  mailbox_root  bytea,
+  root_claim    bytea,
   xt_count      int  not null default 0,
   prove_ms      int,
   l1_tx         bytea,
@@ -118,7 +106,6 @@ create table if not exists superblocks (
   validated_at  timestamptz,
   finalized_at  timestamptz
 );
-create index if not exists superblocks_period_idx on superblocks (period desc);
 create index if not exists superblocks_status_idx on superblocks (status);
 
 create table if not exists superblock_chains (

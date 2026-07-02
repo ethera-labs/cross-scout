@@ -8,12 +8,17 @@
 // All byte values are `0x`-prefixed hex; all timestamps are RFC-3339; all chain
 // ids are numbers. `bigint`-scale values (wei) are decimal strings.
 
-export type XtStatus = 'pending' | 'unsafe' | 'validated' | 'finalized' | 'failed';
+export type XtStatus = 'pending' | 'committed' | 'validated' | 'finalized' | 'failed';
 export type Decision = 'pending' | 'commit' | 'abort';
 export type Direction = 'in' | 'out';
 export type SuperblockStatus = 'proposed' | 'validated' | 'finalized';
 
-/** Human-readable lifecycle stage names, indexed by the numeric `stage` (1..9). */
+/**
+ * Human-readable lifecycle stage names, indexed by the numeric `stage` (1..9).
+ * Stages 2..5 are the publisher's off-chain 2PC phases; live ingestion jumps
+ * `requested → included`, so they only appear if the publisher ever exposes an
+ * event stream.
+ */
 export const STAGE_NAMES = [
   'unknown',
   'requested',
@@ -27,11 +32,12 @@ export const STAGE_NAMES = [
   'finalized',
 ] as const;
 
+/** The terminal rollback stage (`xts.stage = 255`). */
+export const STAGE_ROLLED_BACK = 255;
+
 export interface Xt {
   xtHash: string;
   instanceId: string;
-  period: number | null;
-  seq: number | null;
   srcChain: number | null;
   dstChain: number | null;
   chains: number[];
@@ -44,23 +50,13 @@ export interface Xt {
   updatedAt: string;
 }
 
-export interface Vote {
-  instanceId: string;
-  chainId: number;
-  commit: boolean;
-  votedAt: string;
-}
-
 export interface Instance {
   instanceId: string;
   xtHash: string | null;
-  period: number | null;
-  seq: number | null;
   participants: number[];
   decision: Decision;
   startedAt: string | null;
   decidedAt: string | null;
-  votes: Vote[];
 }
 
 export interface MailboxMessage {
@@ -69,8 +65,9 @@ export interface MailboxMessage {
   srcChain: number | null;
   dstChain: number | null;
   session: string | null;
-  header: string | null;
-  bodyHash: string | null;
+  sender: string | null;
+  receiver: string | null;
+  label: string | null;
   xtHash: string | null;
   superblockNumber: number | null;
   chainId: number;
@@ -92,9 +89,8 @@ export interface Superblock {
   number: number;
   hash: string | null;
   parentHash: string | null;
-  period: number | null;
   status: SuperblockStatus;
-  mailboxRoot: string | null;
+  rootClaim: string | null;
   xtCount: number;
   proveMs: number | null;
   l1Tx: string | null;
@@ -123,6 +119,7 @@ export interface NetworkStats {
   hostChain: number;
   totalXts: number;
   pending: number;
+  committed: number;
   validated: number;
   finalized: number;
   failed: number;
@@ -141,6 +138,7 @@ export interface RollupView {
   chainId: number;
   xtCount: number;
   finalized: number;
+  committed: number;
   pending: number;
   recentXts: Xt[];
 }
@@ -148,13 +146,12 @@ export interface RollupView {
 /** Mailbox view for `GET /v1/mailbox/:chain`. */
 export interface MailboxView {
   chainId: number;
-  outboxRoot: string | null;
-  inboxRoot: string | null;
+  inCount: number;
+  outCount: number;
   messages: MailboxMessage[];
 }
 
 export type StreamEvent =
   | { type: 'newXt'; xt: Xt }
   | { type: 'xtUpdated'; xt: Xt }
-  | { type: 'vote'; vote: Vote }
   | { type: 'superblockUpdated'; superblock: Superblock };

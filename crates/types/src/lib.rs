@@ -18,12 +18,20 @@ pub use dto::*;
 pub use event::{DomainEvent, EventKind, EventMeta};
 pub use source::{EventSink, SinkClosed, Source, SourceError};
 
-/// SBCP period length in seconds. The correlation watchdog flags any XT that
-/// has not reached a decision within one period of `first_seen_at`.
-pub const PERIOD_SECONDS: i64 = 3840;
+/// Default stall window in seconds (one SBCP period, from the protocol spec).
+/// The correlation watchdog rolls back any XT that has not reached a sealed
+/// inclusion within this window of `first_seen_at` - a pre-confirmation that
+/// never seals is an aborted 2PC instance. Override with
+/// `STALL_TIMEOUT_SECONDS`.
+pub const PERIOD_SECONDS: i64 = ethera_spec::PERIOD_DURATION.as_secs() as i64;
 
 /// Lifecycle stage of a cross-chain transaction: 1..=9 plus the terminal
 /// `RolledBack`. The `xts.stage` column stores the numeric discriminant.
+///
+/// Stages 2..=5 (`Scheduled`..`Decided`) are the publisher's off-chain 2PC
+/// phases. They have no publicly observable signal today, so live ingestion
+/// jumps from `Requested` straight to `Included`; the variants stay reserved
+/// for when the publisher exposes an event stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[ts(export, export_to = "generated/")]
 #[serde(rename_all = "snake_case")]
@@ -64,13 +72,15 @@ impl Stage {
         })
     }
 
-    /// The safety `status` a given stage maps onto for the `xts.status` column.
+    /// The user-facing status a given stage maps onto for the `xts.status`
+    /// column. Included/settled sessions are committed by the publisher, but
+    /// not yet validated/finalized by L1 settlement.
     pub fn status(self) -> XtStatus {
         match self {
             Stage::RolledBack => XtStatus::Failed,
             Stage::Finalized => XtStatus::Finalized,
             Stage::Validated => XtStatus::Validated,
-            Stage::Included | Stage::Settled => XtStatus::Unsafe,
+            Stage::Included | Stage::Settled => XtStatus::Committed,
             _ => XtStatus::Pending,
         }
     }

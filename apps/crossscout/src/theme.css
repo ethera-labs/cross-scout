@@ -227,6 +227,10 @@
     @apply text-[11px] text-cs-faint;
   }
 
+  .menu-backdrop {
+    @apply fixed inset-0 z-50;
+  }
+
   .switcher-menu {
     @apply absolute right-0 top-[46px] z-[60] w-60 rounded-control border border-cs-line-2 bg-cs-bg-2 p-[7px] shadow-[0_22px_55px_-16px_rgba(0,0,0,0.7)];
   }
@@ -430,10 +434,6 @@
     @apply mt-[13px] flex items-center gap-2.5 whitespace-nowrap font-mono text-[30px] font-semibold leading-none text-cs-fg;
   }
 
-  .stat-value svg {
-    @apply shrink-0 text-cs-faint;
-  }
-
   .activity-toolbar {
     @apply mb-3.5 mt-[15px] flex items-center justify-between gap-3;
   }
@@ -443,7 +443,7 @@
   }
 
   .tab {
-    @apply px-4 py-2 text-[13px] font-semibold text-cs-dim;
+    @apply border-0 bg-transparent px-4 py-2 text-[13px] font-semibold text-cs-dim;
   }
 
   .tab.active {
@@ -454,8 +454,17 @@
     @apply flex items-center gap-2.5;
   }
 
-  .toolbar-actions span {
+  .toolbar-actions span,
+  .toolbar-actions button {
     @apply inline-flex items-center gap-[7px] rounded-control border border-cs-line bg-cs-bg-1 px-3.5 py-2 text-[12.5px] text-cs-dim;
+  }
+
+  .toolbar-actions button:hover {
+    @apply border-cs-accent text-cs-fg;
+  }
+
+  .toolbar-actions button:disabled {
+    @apply pointer-events-none opacity-50;
   }
 
   .flow-card {
@@ -514,6 +523,30 @@
 
   .glyph {
     @apply inline-flex shrink-0 items-center justify-center border font-mono font-extrabold leading-none;
+  }
+
+  .copy-button {
+    @apply inline-flex shrink-0 cursor-pointer items-center text-cs-faint transition-colors duration-150;
+  }
+
+  .copy-button:hover {
+    @apply text-cs-accent;
+  }
+
+  .copy-button.copied {
+    @apply text-cs-ok;
+  }
+
+  .advanced-row {
+    @apply flex items-center gap-2.5 border-b border-cs-line py-2 text-xs last:border-b-0;
+  }
+
+  .advanced-row > span {
+    @apply w-28 shrink-0 text-[10.5px] uppercase text-cs-faint;
+  }
+
+  .advanced-row strong {
+    @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-cs-fg;
   }
 
   .tx-feed,
@@ -692,10 +725,6 @@
     @apply overflow-hidden text-ellipsis whitespace-nowrap text-[10.5px] text-cs-faint;
   }
 
-  .tx-hash-cell svg {
-    @apply shrink-0 text-cs-faint;
-  }
-
   .tx-address-cell {
     @apply flex min-w-0 items-center gap-2;
   }
@@ -858,10 +887,6 @@
 
   .hash-chip strong {
     @apply text-[13.5px] text-cs-fg;
-  }
-
-  .hash-chip svg {
-    @apply text-cs-faint;
   }
 
   .route-diagram {
@@ -1097,7 +1122,7 @@
   }
 
   .sb-title span,
-  .rollup-detail-hero span {
+  .rollup-detail-hero > div > span {
     @apply mt-0.5 block text-xs;
   }
 
@@ -1334,7 +1359,7 @@
   }
 
   .rollup-card-head strong,
-  .rollup-card-head span {
+  .rollup-card-head span:not(.glyph) {
     @apply block overflow-hidden text-ellipsis whitespace-nowrap;
   }
 
@@ -1342,7 +1367,7 @@
     @apply text-[15.5px] text-cs-fg;
   }
 
-  .rollup-card-head span {
+  .rollup-card-head span:not(.glyph) {
     @apply mt-[3px] text-[11.5px] text-cs-faint;
   }
 

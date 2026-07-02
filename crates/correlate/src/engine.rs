@@ -1,12 +1,15 @@
 //! The correlation engine: consumes normalized [`DomainEvent`]s, joins them by
-//! `instance_id` / `session`, drives each XT through the lifecycle state
-//! machine, and publishes DTO deltas for the live stream.
+//! session, drives each XT through the lifecycle state machine, and publishes
+//! DTO deltas for the live stream.
+//!
+//! The mailbox session id is the on-chain identity of an XT: `xt_hash` and
+//! `instance_id` are both the bytes32-widened session, so every signal that
+//! carries the session joins to the same row without any off-chain lookup.
 
 use alloy::primitives::B256;
-use cross_scout_store::convert::{hex_prefixed, rfc3339};
 use cross_scout_store::repo::MailboxInsert;
 use cross_scout_store::{Db, RedisPublisher};
-use cross_scout_types::{DomainEvent, EventKind, StreamEvent, Vote, XtStatus, PERIOD_SECONDS};
+use cross_scout_types::{DomainEvent, EventKind, StreamEvent, XtStatus};
 use tracing::{debug, warn};
 
 use crate::error::CorrelateResult;
@@ -15,7 +18,7 @@ use crate::lifecycle::{next_stage, Stage};
 fn status_str(s: XtStatus) -> &'static str {
     match s {
         XtStatus::Pending => "pending",
-        XtStatus::Unsafe => "unsafe",
+        XtStatus::Committed => "committed",
         XtStatus::Validated => "validated",
         XtStatus::Finalized => "finalized",
         XtStatus::Failed => "failed",
@@ -27,15 +30,17 @@ fn status_str(s: XtStatus) -> &'static str {
 pub struct Correlator {
     db: Db,
     publisher: Option<RedisPublisher>,
-    host_chain: i32,
+    /// Seconds an XT may sit without a sealed inclusion before the watchdog
+    /// rolls it back (a pre-confirmation that never seals = 2PC abort).
+    stall_secs: i64,
 }
 
 impl Correlator {
-    pub fn new(db: Db, publisher: Option<RedisPublisher>, host_chain: i32) -> Self {
+    pub fn new(db: Db, publisher: Option<RedisPublisher>, stall_secs: i64) -> Self {
         Self {
             db,
             publisher,
-            host_chain,
+            stall_secs,
         }
     }
 
@@ -45,6 +50,19 @@ impl Correlator {
     /// # Errors
     /// Returns [`CorrelateError`](crate::CorrelateError) if a store write fails.
     pub async fn apply(&self, ev: DomainEvent) -> CorrelateResult<()> {
+        // Sealed heads arrive once per poll per chain; they only move the head
+        // cursor, so they skip the raw-event journal to keep it signal-only.
+        if let EventKind::BlockSealed {
+            chain_id,
+            number,
+            hash,
+            parent_hash,
+            ..
+        } = &ev.kind
+        {
+            return self.apply_head(*chain_id, *number, hash, parent_hash).await;
+        }
+
         if !self.db.record_raw_event(&ev).await? {
             debug!(kind = ev.kind_tag(), "duplicate event, skipping");
             return Ok(());
@@ -54,184 +72,133 @@ impl Correlator {
 
         match &ev.kind {
             EventKind::XtRequested {
-                xt_hash,
-                instance_id,
-                period,
-                seq,
+                session,
                 src_chain,
                 dst_chain,
-                chains,
                 sender,
                 value_wei,
             } => {
-                self.db
+                let inserted = self
+                    .db
                     .ensure_xt(
-                        xt_hash,
-                        instance_id,
-                        Some(*period),
-                        Some(*seq),
+                        session,
+                        session,
                         Some(*src_chain),
                         Some(*dst_chain),
-                        chains,
+                        &[*src_chain, *dst_chain],
                         Some(sender),
                         Some(value_wei),
                         ts,
                     )
                     .await?;
-                self.publish_xt(xt_hash, true).await?;
-            }
-
-            EventKind::InstanceStarted {
-                instance_id,
-                period,
-                seq,
-                chains,
-                xt_hash,
-            } => {
                 self.db
-                    .upsert_instance(
-                        instance_id,
-                        Some(xt_hash),
-                        Some(*period),
-                        Some(*seq),
-                        chains,
-                        Some(ts),
-                    )
+                    .upsert_instance(session, Some(session), &[*src_chain, *dst_chain], Some(ts))
                     .await?;
-                self.db
-                    .ensure_xt(
-                        xt_hash,
-                        instance_id,
-                        Some(*period),
-                        Some(*seq),
-                        None,
-                        None,
-                        chains,
-                        None,
-                        None,
-                        ts,
-                    )
-                    .await?;
-                self.advance_xt(xt_hash, &ev.kind).await?;
-            }
-
-            EventKind::SequencerVoted {
-                instance_id,
-                chain_id,
-                commit,
-            } => {
-                self.db
-                    .record_vote(instance_id, *chain_id, *commit, ts)
-                    .await?;
-                if let Some(xt) = self.db.xt_hash_for_instance(instance_id).await? {
-                    self.advance_xt(&xt, &ev.kind).await?;
-                }
-                self.publish(StreamEvent::Vote {
-                    vote: Vote {
-                        instance_id: hex_prefixed(instance_id.as_slice()),
-                        chain_id: *chain_id,
-                        commit: *commit,
-                        voted_at: rfc3339(&ts),
-                    },
-                })
-                .await?;
-            }
-
-            EventKind::InstanceDecided {
-                instance_id,
-                commit,
-            } => {
-                let decision = if *commit { "commit" } else { "abort" };
-                self.db
-                    .set_instance_decision(instance_id, decision, ts)
-                    .await?;
-                if let Some(xt) = self.db.xt_hash_for_instance(instance_id).await? {
-                    self.advance_xt(&xt, &ev.kind).await?;
-                }
+                self.publish_xt(session, inserted).await?;
             }
 
             EventKind::MessageDispatched {
-                dst_chain_id,
                 session,
-                header,
-                body_hash,
+                src_chain,
+                dst_chain,
+                sender,
+                receiver,
+                label,
+                ..
+            }
+            | EventKind::MessageDelivered {
+                session,
+                src_chain,
+                dst_chain,
+                sender,
+                receiver,
+                label,
                 ..
             } => {
-                // The session resolves to the instance, and thus the XT, that
-                // this message belongs to.
-                let xt = self.db.xt_hash_for_instance(session).await?;
+                let inserted = self
+                    .db
+                    .ensure_xt(
+                        session,
+                        session,
+                        Some(*src_chain),
+                        Some(*dst_chain),
+                        &[*src_chain, *dst_chain],
+                        Some(sender),
+                        None,
+                        ts,
+                    )
+                    .await?;
+                self.db
+                    .upsert_instance(session, Some(session), &[*src_chain, *dst_chain], Some(ts))
+                    .await?;
+
+                let direction = match &ev.kind {
+                    EventKind::MessageDispatched { .. } => "out",
+                    _ => "in",
+                };
                 self.db
                     .insert_mailbox(MailboxInsert {
-                        direction: "out",
-                        src_chain: Some(self.host_chain),
-                        dst_chain: Some(*dst_chain_id),
+                        direction,
+                        src_chain: Some(*src_chain),
+                        dst_chain: Some(*dst_chain),
                         session: Some(session),
-                        header: Some(header.as_ref()),
-                        body_hash: Some(body_hash),
-                        xt_hash: xt.as_ref(),
+                        sender: Some(sender),
+                        receiver: Some(receiver),
+                        label: Some(label),
+                        xt_hash: Some(session),
                         chain_id: meta.chain_id,
                         block_hash: &meta.block_hash,
                         log_index: meta.log_index,
                         ts,
                     })
                     .await?;
-                if let Some(x) = xt {
-                    self.advance_xt(&x, &ev.kind).await?;
+
+                // The sealed mailbox write anchors the XT for reorg handling
+                // and commits the session: the builders only execute an XT the
+                // publisher decided to commit.
+                self.db.set_xt_block(session, &meta.block_hash).await?;
+                self.db.set_instance_decision(session, "commit", ts).await?;
+
+                if inserted {
+                    self.publish_xt(session, true).await?;
                 }
+                self.advance_xt(session, &ev.kind).await?;
             }
 
-            EventKind::MessageDelivered {
-                src_chain_id,
-                session,
-                ..
-            } => {
-                let xt = self.db.xt_hash_for_instance(session).await?;
-                self.db
-                    .insert_mailbox(MailboxInsert {
-                        direction: "in",
-                        src_chain: Some(*src_chain_id),
-                        dst_chain: Some(self.host_chain),
-                        session: Some(session),
-                        header: None,
-                        body_hash: None,
-                        xt_hash: xt.as_ref(),
-                        chain_id: meta.chain_id,
-                        block_hash: &meta.block_hash,
-                        log_index: meta.log_index,
-                        ts,
-                    })
-                    .await?;
-                if let Some(x) = xt {
-                    self.advance_xt(&x, &ev.kind).await?;
-                }
-            }
-
-            // Root commitments are persisted as raw events for inbox/outbox
-            // consistency auditing; they do not advance an individual XT.
-            EventKind::OutboxRootUpdated { .. } | EventKind::InboxRootUpdated { .. } => {}
-
-            EventKind::Flashblock { xt_hash, .. } => {
-                self.db.set_xt_block(xt_hash, &meta.block_hash).await?;
-                self.advance_xt(xt_hash, &ev.kind).await?;
-            }
-
-            EventKind::BlockSealed {
-                chain_id,
-                number,
-                hash,
-                ..
-            } => {
-                self.db.update_head(*chain_id, *number, hash, true).await?;
-            }
+            // Short-circuited before the raw-event journal above.
+            EventKind::BlockSealed { .. } => {}
 
             EventKind::SuperblockProposed {
                 number,
-                mailbox_root,
+                root_claim,
+                hash,
+                parent_hash,
                 chains,
+                transitions,
             } => {
                 self.db
-                    .upsert_superblock_proposed(*number, mailbox_root, None, ts)
+                    .upsert_superblock_proposed(
+                        *number,
+                        root_claim,
+                        hash,
+                        parent_hash,
+                        meta.tx_hash.as_ref(),
+                        meta.block_number,
+                        ts,
+                    )
                     .await?;
+                for t in transitions {
+                    self.db
+                        .upsert_superblock_chain(
+                            *number,
+                            t.chain_id,
+                            Some(t.l2_block),
+                            Some(&t.pre_root),
+                            Some(&t.post_root),
+                            Some(&t.config_hash),
+                        )
+                        .await?;
+                }
                 let affected = self
                     .db
                     .attach_and_settle_superblock(*number, chains)
@@ -242,58 +209,59 @@ impl Correlator {
                 }
             }
 
-            EventKind::SuperblockValidated { number, .. } => {
-                self.db.set_superblock_validated(*number, None, ts).await?;
-                self.db
-                    .propagate_superblock_status(*number, Stage::Validated.as_u8(), "validated")
-                    .await?;
-                self.publish_superblock(*number).await?;
-                self.publish_superblock_xts(*number).await?;
-            }
-
-            EventKind::SuperblockFinalized {
-                number,
-                l1_tx,
-                l1_block,
-            } => {
-                self.db
-                    .set_superblock_finalized(*number, l1_tx, *l1_block, ts)
-                    .await?;
-                self.db
-                    .propagate_superblock_status(*number, Stage::Finalized.as_u8(), "finalized")
-                    .await?;
-                self.publish_superblock(*number).await?;
-                self.publish_superblock_xts(*number).await?;
+            EventKind::SuperblockFinalized { number, .. } => {
+                for n in self.db.finalize_superblocks_up_to(*number, ts).await? {
+                    self.db
+                        .propagate_superblock_status(n, Stage::Finalized.as_u8(), "finalized")
+                        .await?;
+                    self.publish_superblock(n).await?;
+                    self.publish_superblock_xts(n).await?;
+                }
             }
         }
         Ok(())
     }
 
-    /// Roll unsafe state on `chain_id` above `ancestor_block` back after a
-    /// reorg. Called by ingestion when it detects a head that does not build on
-    /// the last hash it saw.
-    ///
-    /// # Errors
-    /// Returns [`CorrelateError`](crate::CorrelateError) if the rollback fails.
-    pub async fn handle_reorg(&self, chain_id: i32, ancestor_block: i64) -> CorrelateResult<()> {
-        let dropped = self.db.rollback_unsafe(chain_id, ancestor_block).await?;
-        if dropped > 0 {
-            warn!(
-                chain_id,
-                ancestor_block, dropped, "reorg: rolled back unsafe events"
-            );
+    /// Move a chain's sealed head and reconcile a reorg when the new head does
+    /// not extend the last one we saw.
+    async fn apply_head(
+        &self,
+        chain_id: i32,
+        number: i64,
+        hash: &B256,
+        parent_hash: &B256,
+    ) -> CorrelateResult<()> {
+        if let Some((prev_number, prev_hash)) = self.db.get_head(chain_id).await? {
+            let reorged = (number == prev_number + 1 && *parent_hash != prev_hash)
+                || (number <= prev_number && *hash != prev_hash);
+            if reorged {
+                let ancestor = number.saturating_sub(1);
+                let dropped = self.db.rollback_unsealed(chain_id, ancestor).await?;
+                warn!(
+                    chain_id,
+                    ancestor, dropped, "reorg: rolled back unsealed events"
+                );
+            }
         }
+        self.db.update_head(chain_id, number, hash, true).await?;
         Ok(())
     }
 
-    /// Watchdog pass: log XTs stuck below `Decided` past one period boundary.
+    /// Watchdog pass: roll back XTs that never reached a sealed inclusion
+    /// within the stall window - the observable form of a 2PC abort.
     ///
     /// # Errors
-    /// Returns [`CorrelateError`](crate::CorrelateError) if the query fails.
+    /// Returns [`CorrelateError`](crate::CorrelateError) if the store write fails.
     pub async fn sweep_stalled(&self) -> CorrelateResult<()> {
-        let stalled = self.db.count_stalled(PERIOD_SECONDS).await?;
-        if stalled > 0 {
-            warn!(stalled, "XTs stalled past period boundary");
+        let stalled = self.db.mark_stalled(self.stall_secs).await?;
+        if stalled.is_empty() {
+            return Ok(());
+        }
+        warn!(count = stalled.len(), "rolled back stalled XTs");
+        let now = chrono::Utc::now();
+        for xt in &stalled {
+            self.db.set_instance_decision(xt, "abort", now).await?;
+            self.publish_xt(xt, false).await?;
         }
         Ok(())
     }

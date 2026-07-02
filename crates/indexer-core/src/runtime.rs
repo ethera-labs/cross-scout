@@ -46,7 +46,7 @@ impl Runtime {
             }
         };
 
-        let correlator = Correlator::new(db, publisher, cfg.host_chain_id);
+        let correlator = Correlator::new(db, publisher, cfg.stall_timeout_secs);
 
         // Bounded so a slow correlator applies backpressure to ingestion.
         let (tx, mut rx) = mpsc::channel::<DomainEvent>(2048);
@@ -77,11 +77,7 @@ impl Runtime {
             });
         }
 
-        info!(
-            host_chain = cfg.host_chain_id,
-            mock = cfg.use_mock_sources,
-            "indexer running"
-        );
+        info!(host_chain = cfg.host_chain_id, "indexer running");
 
         while let Some(ev) = rx.recv().await {
             if let Err(e) = correlator.apply(ev).await {

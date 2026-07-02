@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 cross-scout-types.workspace = true
+cross-scout-ingest-el.workspace = true
 alloy.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true

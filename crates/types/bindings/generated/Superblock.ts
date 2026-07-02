@@ -5,4 +5,8 @@ import type { SuperblockStatus } from "./SuperblockStatus";
 /**
  * A superblock plus its per-chain transitions.
  */
-export type Superblock = { number: bigint, hash: string | null, parentHash: string | null, period: bigint | null, status: SuperblockStatus, mailboxRoot: string | null, xtCount: number, proveMs: number | null, l1Tx: string | null, l1Block: bigint | null, proposedAt: string | null, validatedAt: string | null, finalizedAt: string | null, chains: Array<SuperblockChain>, };
+export type Superblock = { number: bigint, hash: string | null, parentHash: string | null, status: SuperblockStatus, 
+/**
+ * Super-root claim the settlement dispute game was created with.
+ */
+rootClaim: string | null, xtCount: number, proveMs: number | null, l1Tx: string | null, l1Block: bigint | null, proposedAt: string | null, validatedAt: string | null, finalizedAt: string | null, chains: Array<SuperblockChain>, };

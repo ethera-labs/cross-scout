@@ -2,14 +2,14 @@
 import type { XtStatus } from "./XtStatus";
 
 /**
- * One cross-chain transaction.
+ * One cross-chain transaction, keyed by its mailbox session.
  */
-export type Xt = { xtHash: string, instanceId: string, period: bigint | null, seq: number | null, srcChain: number | null, dstChain: number | null, chains: Array<number>, sender: string | null, 
+export type Xt = { xtHash: string, instanceId: string, srcChain: number | null, dstChain: number | null, chains: Array<number>, sender: string | null, 
 /**
  * Decimal string (wei can exceed 2^53).
  */
 valueWei: string | null, status: XtStatus, 
 /**
- * Lifecycle stage, 1..=9.
+ * Lifecycle stage, 1..=9 or the terminal 255.
  */
 stage: number, superblockNumber: bigint | null, firstSeenAt: string, updatedAt: string, };

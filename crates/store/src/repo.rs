@@ -3,7 +3,7 @@
 
 use alloy::primitives::{Address, B256, U256};
 use chrono::{DateTime, Utc};
-use cross_scout_types::{DomainEvent, Instance, Superblock, Vote, Xt};
+use cross_scout_types::{DomainEvent, Instance, Superblock, Xt};
 
 use crate::convert::*;
 use crate::rows::*;
@@ -15,8 +15,9 @@ pub struct MailboxInsert<'a> {
     pub src_chain: Option<i32>,
     pub dst_chain: Option<i32>,
     pub session: Option<&'a B256>,
-    pub header: Option<&'a [u8]>,
-    pub body_hash: Option<&'a B256>,
+    pub sender: Option<&'a Address>,
+    pub receiver: Option<&'a Address>,
+    pub label: Option<&'a str>,
     pub xt_hash: Option<&'a B256>,
     pub chain_id: i32,
     pub block_hash: &'a B256,
@@ -55,7 +56,8 @@ impl Db {
     // ── xts ───────────────────────────────────────────────────────
 
     /// Create the XT row if absent, else fill in any descriptive fields we
-    /// learn later. Never regresses `stage`/`status`.
+    /// learn later. Never regresses `stage`/`status`. Returns `true` when the
+    /// row was newly inserted.
     #[expect(
         clippy::too_many_arguments,
         reason = "arg list matches the xts columns; a params struct would not read better"
@@ -64,45 +66,40 @@ impl Db {
         &self,
         xt_hash: &B256,
         instance_id: &B256,
-        period: Option<i64>,
-        seq: Option<i32>,
         src_chain: Option<i32>,
         dst_chain: Option<i32>,
         chains: &[i32],
         sender: Option<&Address>,
         value_wei: Option<&U256>,
         first_seen: DateTime<Utc>,
-    ) -> StoreResult<()> {
-        sqlx::query(
+    ) -> StoreResult<bool> {
+        // `xmax = 0` distinguishes a fresh insert from a conflict-update.
+        let inserted: bool = sqlx::query_scalar(
             r#"insert into xts
-                 (xt_hash, instance_id, period, seq, src_chain, dst_chain, chains,
+                 (xt_hash, instance_id, src_chain, dst_chain, chains,
                   sender, value_wei, status, stage, first_seen_at, updated_at)
-               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',1,$10,$10)
+               values ($1,$2,$3,$4,$5,$6,$7,'pending',1,$8,$8)
                on conflict (xt_hash) do update set
-                 instance_id = excluded.instance_id,
-                 period      = coalesce(xts.period, excluded.period),
-                 seq         = coalesce(xts.seq, excluded.seq),
                  src_chain   = coalesce(xts.src_chain, excluded.src_chain),
                  dst_chain   = coalesce(xts.dst_chain, excluded.dst_chain),
                  chains      = case when array_length(excluded.chains,1) is not null
                                     then excluded.chains else xts.chains end,
                  sender      = coalesce(xts.sender, excluded.sender),
                  value_wei   = coalesce(xts.value_wei, excluded.value_wei),
-                 updated_at  = now()"#,
+                 updated_at  = now()
+               returning (xmax = 0)"#,
         )
         .bind(b256_bytes(xt_hash))
         .bind(b256_bytes(instance_id))
-        .bind(period)
-        .bind(seq)
         .bind(src_chain)
         .bind(dst_chain)
         .bind(chains)
         .bind(sender.map(address_bytes))
         .bind(value_wei.map(u256_decimal))
         .bind(first_seen)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
-        Ok(())
+        Ok(inserted)
     }
 
     /// Advance an XT to `stage`/`status`, monotonically - an out-of-order or
@@ -126,16 +123,6 @@ impl Db {
         Ok(res.rows_affected() == 1)
     }
 
-    /// Attach an XT to the superblock that settled it.
-    pub async fn set_xt_superblock(&self, xt_hash: &B256, number: i64) -> StoreResult<()> {
-        sqlx::query("update xts set superblock_number=$2, updated_at=now() where xt_hash=$1")
-            .bind(b256_bytes(xt_hash))
-            .bind(number)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
-    }
-
     /// Record the inclusion block for an XT (the reorg anchor).
     pub async fn set_xt_block(&self, xt_hash: &B256, block_hash: &B256) -> StoreResult<()> {
         sqlx::query("update xts set block_hash=$2, updated_at=now() where xt_hash=$1")
@@ -146,33 +133,43 @@ impl Db {
         Ok(())
     }
 
-    // ── instances + votes ─────────────────────────────────────────
+    /// Roll back every XT still short of a sealed inclusion after `stall_secs`.
+    /// A pre-confirmation that never seals is an aborted 2PC instance; this is
+    /// the observable abort signal. Returns the affected XT hashes.
+    pub async fn mark_stalled(&self, stall_secs: i64) -> StoreResult<Vec<B256>> {
+        let rows: Vec<Vec<u8>> = sqlx::query_scalar(
+            r#"update xts set stage=255, status='failed', updated_at=now()
+               where stage < 6 and status='pending'
+                 and first_seen_at < now() - make_interval(secs => $1)
+               returning xt_hash"#,
+        )
+        .bind(stall_secs as f64)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(b256_list(rows))
+    }
+
+    // ── instances (sessions) ──────────────────────────────────────
 
     pub async fn upsert_instance(
         &self,
         instance_id: &B256,
         xt_hash: Option<&B256>,
-        period: Option<i64>,
-        seq: Option<i32>,
         participants: &[i32],
         started_at: Option<DateTime<Utc>>,
     ) -> StoreResult<()> {
         sqlx::query(
             r#"insert into instances
-                 (instance_id, xt_hash, period, seq, participants, decision, started_at)
-               values ($1,$2,$3,$4,$5,'pending',$6)
+                 (instance_id, xt_hash, participants, decision, started_at)
+               values ($1,$2,$3,'pending',$4)
                on conflict (instance_id) do update set
                  xt_hash      = coalesce(instances.xt_hash, excluded.xt_hash),
-                 period       = coalesce(instances.period, excluded.period),
-                 seq          = coalesce(instances.seq, excluded.seq),
                  participants = case when array_length(excluded.participants,1) is not null
                                      then excluded.participants else instances.participants end,
                  started_at   = coalesce(instances.started_at, excluded.started_at)"#,
         )
         .bind(b256_bytes(instance_id))
         .bind(xt_hash.map(b256_bytes))
-        .bind(period)
-        .bind(seq)
         .bind(participants)
         .bind(started_at)
         .execute(&self.pool)
@@ -180,56 +177,24 @@ impl Db {
         Ok(())
     }
 
+    /// Set the derived decision once, keeping the first observed outcome.
     pub async fn set_instance_decision(
         &self,
         instance_id: &B256,
         decision: &str,
         decided_at: DateTime<Utc>,
     ) -> StoreResult<()> {
-        sqlx::query("update instances set decision=$2, decided_at=$3 where instance_id=$1")
-            .bind(b256_bytes(instance_id))
-            .bind(decision)
-            .bind(decided_at)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn record_vote(
-        &self,
-        instance_id: &B256,
-        chain_id: i32,
-        commit: bool,
-        voted_at: DateTime<Utc>,
-    ) -> StoreResult<()> {
         sqlx::query(
-            r#"insert into votes (instance_id, chain_id, commit_vote, voted_at)
-               values ($1,$2,$3,$4)
-               on conflict (instance_id, chain_id) do update set
-                 commit_vote = excluded.commit_vote, voted_at = excluded.voted_at"#,
+            r#"update instances
+                 set decision=$2, decided_at=coalesce(decided_at, $3)
+               where instance_id=$1 and decision='pending'"#,
         )
         .bind(b256_bytes(instance_id))
-        .bind(chain_id)
-        .bind(commit)
-        .bind(voted_at)
+        .bind(decision)
+        .bind(decided_at)
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    /// The XT a given instance belongs to, once `InstanceStarted` has linked
-    /// them. Votes/decisions carry only `instance_id`, so correlation resolves
-    /// the XT through this.
-    pub async fn xt_hash_for_instance(&self, instance_id: &B256) -> StoreResult<Option<B256>> {
-        let row: Option<Option<Vec<u8>>> =
-            sqlx::query_scalar("select xt_hash from instances where instance_id=$1")
-                .bind(b256_bytes(instance_id))
-                .fetch_optional(&self.pool)
-                .await?;
-        Ok(row
-            .flatten()
-            .filter(|b| b.len() == 32)
-            .map(|b| B256::from_slice(&b)))
     }
 
     // ── mailbox ───────────────────────────────────────────────────
@@ -237,17 +202,18 @@ impl Db {
     pub async fn insert_mailbox(&self, m: MailboxInsert<'_>) -> StoreResult<()> {
         sqlx::query(
             r#"insert into mailbox_messages
-                 (direction, src_chain, dst_chain, session, header, body_hash,
+                 (direction, src_chain, dst_chain, session, sender, receiver, label,
                   xt_hash, chain_id, block_hash, log_index, ts)
-               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
                on conflict (chain_id, block_hash, log_index) do nothing"#,
         )
         .bind(m.direction)
         .bind(m.src_chain)
         .bind(m.dst_chain)
         .bind(m.session.map(b256_bytes))
-        .bind(m.header.map(|h| h.to_vec()))
-        .bind(m.body_hash.map(b256_bytes))
+        .bind(m.sender.map(address_bytes))
+        .bind(m.receiver.map(address_bytes))
+        .bind(m.label)
         .bind(m.xt_hash.map(b256_bytes))
         .bind(m.chain_id)
         .bind(b256_bytes(m.block_hash))
@@ -260,24 +226,38 @@ impl Db {
 
     // ── superblocks ───────────────────────────────────────────────
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "arg list matches the superblocks columns; a params struct would not read better"
+    )]
     pub async fn upsert_superblock_proposed(
         &self,
         number: i64,
-        mailbox_root: &B256,
-        period: Option<i64>,
+        root_claim: &B256,
+        hash: &B256,
+        parent_hash: &B256,
+        l1_tx: Option<&B256>,
+        l1_block: i64,
         proposed_at: DateTime<Utc>,
     ) -> StoreResult<()> {
         sqlx::query(
-            r#"insert into superblocks (number, mailbox_root, period, status, proposed_at)
-               values ($1,$2,$3,'proposed',$4)
+            r#"insert into superblocks
+                 (number, root_claim, hash, parent_hash, l1_tx, l1_block, status, proposed_at)
+               values ($1,$2,$3,$4,$5,$6,'proposed',$7)
                on conflict (number) do update set
-                 mailbox_root = excluded.mailbox_root,
-                 period       = coalesce(superblocks.period, excluded.period),
-                 proposed_at  = coalesce(superblocks.proposed_at, excluded.proposed_at)"#,
+                 root_claim  = excluded.root_claim,
+                 hash        = excluded.hash,
+                 parent_hash = excluded.parent_hash,
+                 l1_tx       = coalesce(superblocks.l1_tx, excluded.l1_tx),
+                 l1_block    = coalesce(superblocks.l1_block, excluded.l1_block),
+                 proposed_at = coalesce(superblocks.proposed_at, excluded.proposed_at)"#,
         )
         .bind(number)
-        .bind(b256_bytes(mailbox_root))
-        .bind(period)
+        .bind(b256_bytes(root_claim))
+        .bind(b256_bytes(hash))
+        .bind(b256_bytes(parent_hash))
+        .bind(l1_tx.map(b256_bytes))
+        .bind(l1_block)
         .bind(proposed_at)
         .execute(&self.pool)
         .await?;
@@ -305,26 +285,25 @@ impl Db {
         Ok(())
     }
 
-    pub async fn set_superblock_finalized(
+    /// Finalize every superblock at or below `number` (the anchor registry
+    /// advances monotonically and may skip numbers). Returns the numbers that
+    /// actually transitioned so the caller can propagate + publish.
+    pub async fn finalize_superblocks_up_to(
         &self,
         number: i64,
-        l1_tx: &B256,
-        l1_block: i64,
         finalized_at: DateTime<Utc>,
-    ) -> StoreResult<()> {
-        sqlx::query(
+    ) -> StoreResult<Vec<i64>> {
+        let rows: Vec<i64> = sqlx::query_scalar(
             r#"update superblocks
-                 set status='finalized', l1_tx=$2, l1_block=$3,
-                     finalized_at = coalesce(finalized_at, $4)
-               where number=$1"#,
+                 set status='finalized', finalized_at = coalesce(finalized_at, $2)
+               where number <= $1 and status <> 'finalized'
+               returning number"#,
         )
         .bind(number)
-        .bind(b256_bytes(l1_tx))
-        .bind(l1_block)
         .bind(finalized_at)
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
-        Ok(())
+        Ok(rows)
     }
 
     pub async fn upsert_superblock_chain(
@@ -367,7 +346,7 @@ impl Db {
         chains: &[i32],
     ) -> StoreResult<Vec<B256>> {
         let rows: Vec<Vec<u8>> = sqlx::query_scalar(
-            r#"update xts set superblock_number=$1, stage=7, status='unsafe', updated_at=now()
+            r#"update xts set superblock_number=$1, stage=7, status='committed', updated_at=now()
                where superblock_number is null and stage >= 6 and chains && $2::int[]
                returning xt_hash"#,
         )
@@ -382,11 +361,7 @@ impl Db {
         .bind(number)
         .execute(&self.pool)
         .await?;
-        Ok(rows
-            .into_iter()
-            .filter(|b| b.len() == 32)
-            .map(|b| B256::from_slice(&b))
-            .collect())
+        Ok(b256_list(rows))
     }
 
     /// All XTs settled in a given superblock, as DTOs.
@@ -400,22 +375,8 @@ impl Db {
         Ok(rows.into_iter().map(XtRow::into_dto).collect())
     }
 
-    /// Count XTs that have sat below `Decided` (stage 5) longer than one period
-    /// - the correlation watchdog's stall signal.
-    pub async fn count_stalled(&self, period_seconds: i64) -> StoreResult<i64> {
-        let n: i64 = sqlx::query_scalar(
-            r#"select count(*) from xts
-               where stage < 5 and status = 'pending'
-                 and first_seen_at < now() - make_interval(secs => $1)"#,
-        )
-        .bind(period_seconds as f64)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(n)
-    }
-
     /// Mark every XT settled in a superblock with the superblock's status
-    /// transition, so `unsafe → validated → finalized` propagates to XTs.
+    /// transition, so `committed → validated → finalized` propagates to XTs.
     pub async fn propagate_superblock_status(
         &self,
         number: i64,
@@ -435,6 +396,18 @@ impl Db {
     }
 
     // ── heads + reorg ─────────────────────────────────────────────
+
+    /// Last sealed head recorded for a chain.
+    pub async fn get_head(&self, chain_id: i32) -> StoreResult<Option<(i64, B256)>> {
+        let row: Option<(i64, Vec<u8>)> =
+            sqlx::query_as("select head_number, head_hash from chain_heads where chain_id=$1")
+                .bind(chain_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row
+            .filter(|(_, h)| h.len() == 32)
+            .map(|(n, h)| (n, B256::from_slice(&h))))
+    }
 
     pub async fn update_head(
         &self,
@@ -462,31 +435,18 @@ impl Db {
         Ok(())
     }
 
-    /// Drop unsafe (flashblock) events above the last common ancestor after a
-    /// reorg, and roll any XTs that were only `Included` on those blocks back to
-    /// `Decided` so they can be re-included on the canonical chain.
-    pub async fn rollback_unsafe(&self, chain_id: i32, from_block: i64) -> StoreResult<u64> {
-        let mut tx = self.pool.begin().await?;
+    /// Drop unsealed flashblock events above the last common ancestor after a
+    /// reorg. XTs seen only in dropped pre-confirmations stay `Requested` and
+    /// are rolled back by the stall watchdog if they never seal.
+    pub async fn rollback_unsealed(&self, chain_id: i32, from_block: i64) -> StoreResult<u64> {
         let dropped = sqlx::query(
             "delete from raw_events where chain_id=$1 and block_number > $2 and safe = false",
         )
         .bind(chain_id)
         .bind(from_block)
-        .execute(&mut *tx)
+        .execute(&self.pool)
         .await?
         .rows_affected();
-
-        // Included(6) reverts to Decided(5) for XTs on this chain that never
-        // reached a safe superblock. Settled+ XTs are anchored on L1 and kept.
-        sqlx::query(
-            r#"update xts set stage=5, status='pending', updated_at=now()
-               where stage = 6 and $1 = any(chains)"#,
-        )
-        .bind(chain_id)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
         Ok(dropped)
     }
 
@@ -500,28 +460,12 @@ impl Db {
         Ok(row.map(XtRow::into_dto))
     }
 
-    pub async fn get_votes(&self, instance_id: &B256) -> StoreResult<Vec<Vote>> {
-        let rows = sqlx::query_as::<_, VoteRow>(
-            "select * from votes where instance_id=$1 order by chain_id",
-        )
-        .bind(b256_bytes(instance_id))
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.into_iter().map(VoteRow::into_dto).collect())
-    }
-
     pub async fn get_instance(&self, instance_id: &B256) -> StoreResult<Option<Instance>> {
         let row = sqlx::query_as::<_, InstanceRow>("select * from instances where instance_id=$1")
             .bind(b256_bytes(instance_id))
             .fetch_optional(&self.pool)
             .await?;
-        match row {
-            Some(r) => {
-                let votes = self.get_votes(instance_id).await?;
-                Ok(Some(r.into_dto(votes)))
-            }
-            None => Ok(None),
-        }
+        Ok(row.map(InstanceRow::into_dto))
     }
 
     pub async fn get_superblock(&self, number: i64) -> StoreResult<Option<Superblock>> {
@@ -545,4 +489,12 @@ impl Db {
             None => Ok(None),
         }
     }
+}
+
+/// `bytea` rows to `B256`s, dropping any malformed lengths.
+fn b256_list(rows: Vec<Vec<u8>>) -> Vec<B256> {
+    rows.into_iter()
+        .filter(|b| b.len() == 32)
+        .map(|b| B256::from_slice(&b))
+        .collect()
 }

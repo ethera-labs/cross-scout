@@ -1,50 +1,76 @@
 //! Source registry: assembles the set of ingestion [`Source`]s for this
-//! instance from config - either the synthetic mock source or the live
-//! per-rollup taps.
+//! instance from config - one EL poller (and optionally one flashblocks
+//! stream) per participating rollup, plus the L1 settlement taps.
 
-use crate::config::Config;
-use crate::mock::MockSource;
+use alloy::primitives::Address;
 use cross_scout_ingest_el::ElSource;
 use cross_scout_ingest_flashblocks::FlashblocksSource;
-use cross_scout_ingest_sbcp::SbcpSource;
-use cross_scout_ingest_settlement::SettlementSource;
+use cross_scout_ingest_settlement::{AnchorSource, SettlementSource, SettlementSourceConfig};
 use cross_scout_types::Source;
+use tracing::warn;
+
+use crate::config::Config;
 
 /// Build the ingestion sources for the given config.
 pub fn build_sources(cfg: &Config) -> Vec<Box<dyn Source>> {
-    if cfg.use_mock_sources {
-        return vec![Box::new(MockSource::new(cfg.host_chain_id))];
+    let mut sources: Vec<Box<dyn Source>> = Vec::new();
+
+    if cfg.el_rpc_urls.is_empty() {
+        warn!("EL_RPC_URLS is empty - no rollup will be ingested");
+    }
+    if cfg.mailbox_address == Address::ZERO {
+        warn!("MAILBOX_ADDRESS unset - mailbox logs will not decode");
     }
 
-    vec![
-        // Mailbox logs on the host rollup's EL.
-        Box::new(ElSource::new(
-            cfg.el_rpc_url.clone(),
+    // Mailbox + bridge logs on every participating rollup.
+    for ep in &cfg.el_rpc_urls {
+        sources.push(Box::new(ElSource::new(
+            ep.chain_id,
+            ep.url.clone(),
             cfg.mailbox_address,
-            cfg.host_chain_id,
+            cfg.bridge_addresses.clone(),
             cfg.el_start_block,
             cfg.poll_interval_ms,
-        )),
-        // SBCP coordinator (2PC) logs, also on the host EL.
-        Box::new(SbcpSource::new(
-            cfg.el_rpc_url.clone(),
-            cfg.sbcp_coordinator_address,
-            cfg.host_chain_id,
-            cfg.el_start_block,
-            cfg.poll_interval_ms,
-        )),
-        // Superblock lifecycle on L1.
-        Box::new(SettlementSource::new(
-            cfg.l1_rpc_url.clone(),
-            cfg.settlement_address,
+            cfg.log_max_range,
+        )));
+    }
+
+    // Flashblock pre-confirmations, where a builder websocket is exposed.
+    for ep in &cfg.flashblocks_ws_urls {
+        sources.push(Box::new(FlashblocksSource::new(
+            ep.url.clone(),
+            ep.chain_id,
+            cfg.bridge_addresses.clone(),
+        )));
+    }
+
+    // Superblock settlement on L1.
+    if cfg.dispute_game_factory != Address::ZERO {
+        sources.push(Box::new(SettlementSource::new(SettlementSourceConfig {
+            l1_chain_id: cfg.l1_chain_id,
+            l1_rpc_url: cfg.l1_rpc_url.clone(),
+            factory: cfg.dispute_game_factory,
+            game_type: cfg.game_type,
+            allowed_chains: cfg
+                .el_rpc_urls
+                .iter()
+                .map(|endpoint| endpoint.chain_id)
+                .collect(),
+            start_block: cfg.l1_start_block,
+            poll_ms: cfg.poll_interval_ms,
+            max_range: cfg.log_max_range,
+        })));
+    } else {
+        warn!("DISPUTE_GAME_FACTORY_ADDRESS unset - superblock settlement will not be tracked");
+    }
+    if let Some(registry) = cfg.anchor_state_registry {
+        sources.push(Box::new(AnchorSource::new(
             cfg.l1_chain_id,
-            cfg.l1_start_block,
+            cfg.l1_rpc_url.clone(),
+            registry,
             cfg.poll_interval_ms,
-        )),
-        // Flashblock pre-confirmations over websocket.
-        Box::new(FlashblocksSource::new(
-            cfg.flashblocks_ws_url.clone(),
-            cfg.host_chain_id,
-        )),
-    ]
+        )));
+    }
+
+    sources
 }

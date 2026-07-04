@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import type { MailboxMessage, Xt, XtDetail } from '@cross-scout/sdk';
+import type { MailboxMessage, TokenMeta, Transfer, Xt, XtDetail } from '@cross-scout/sdk';
 import { BackButton, DetailMeta, EmptyPanel, Glyph, PanelHeader, StatusPill } from '../components/primitives';
 import { MessageRow } from '../components/rows';
 import { Timeline } from '../components/Timeline';
+import { apiBaseUrl } from '../lib/api';
 import type { ChainView } from '../lib/chains';
 import { chainSequence, chainView } from '../lib/chains';
-import { clock, fmt, formatEthCompact, shortHex, stageName, timeAgo } from '../lib/format';
+import { clock, formatEthCompact, formatTokenAmount, shortHex, stageName, timeAgo } from '../lib/format';
 import { Button } from '../ui/Button';
 import { CopyButton } from '../ui/CopyButton';
 
@@ -17,18 +18,47 @@ const tabs: Array<[DetailTab, string]> = [
   ['progress', 'Progress'],
 ];
 
+function tokenFor(transfer: Transfer, tokens: TokenMeta[]): TokenMeta | null {
+  if (!transfer.token) return null;
+  return (
+    tokens.find(
+      (token) => token.address.toLowerCase() === transfer.token?.toLowerCase() && token.chainId === transfer.chainId,
+    ) ??
+    tokens.find((token) => token.address.toLowerCase() === transfer.token?.toLowerCase()) ??
+    null
+  );
+}
+
+function transferAmount(transfer: Transfer, tokens: TokenMeta[]): string {
+  if (transfer.kind === 'eth') return formatEthCompact(transfer.amount);
+  const meta = tokenFor(transfer, tokens);
+  return formatTokenAmount(transfer.amount, meta?.decimals, meta?.symbol ?? shortHex(transfer.token, 5, 3));
+}
+
+function FieldRow({ label, value, copy }: { label: string; value: string; copy?: string | null }) {
+  return (
+    <div className="advanced-row">
+      <span className="mono">{label}</span>
+      <strong className="mono">{value}</strong>
+      {copy && <CopyButton value={copy} />}
+    </div>
+  );
+}
+
 export function TxDetailPage({
   xt,
   detail,
   loading,
   chains,
   back,
+  onSuperblock,
 }: {
   xt: Xt | null;
   detail: XtDetail | null;
   loading: boolean;
   chains: Map<number, ChainView>;
   back: () => void;
+  onSuperblock: (number: number) => void;
 }) {
   const [tab, setTab] = useState<DetailTab>('overview');
   const current = detail?.xt ?? xt;
@@ -43,36 +73,105 @@ export function TxDetailPage({
 
   const route = chainSequence(current, chains);
   const participants = detail?.instance?.participants.length
-    ? detail.instance.participants.map((id) => chainView(chains, id))
-    : route;
-  const decision = detail?.instance?.decision ?? (current.status === 'failed' ? 'abort' : 'commit');
-  const commitCount = decision === 'abort' ? Math.max(0, participants.length - 1) : participants.length;
+    ? detail.instance.participants
+    : current.chains;
   const mailbox = detail?.mailbox ?? [];
-  const mailboxBlocks = Array.from(
-    mailbox.reduce((map, message) => {
-      if (!map.has(message.chainId)) map.set(message.chainId, message);
-      return map;
-    }, new Map<number, MailboxMessage>()),
-  ).map(([, message]) => message);
+  const transfers = detail?.transfers ?? [];
+  const tokens = detail?.tokens ?? [];
+  const decision = detail?.instance?.decision ?? 'pending';
 
-  const votesPanel = (
+  const deliveryMsg = mailbox.find((message) => message.direction === 'in' && message.txHash);
+  const completeAt = current.finalizedAt ?? current.settledAt ?? current.includedAt;
+  const committedChains = new Set(mailbox.map((message) => message.chainId));
+  const protocols = ['Universal Bridge Mailbox', ...(transfers.length ? ['Compose L2-L2 Bridge'] : [])];
+  const curl = `curl -s ${apiBaseUrl}/v1/xts/${current.xtHash}`;
+
+  const coordinationPanel = (
     <section className="panel">
-      <PanelHeader title="2PC Votes" value={`${commitCount}/${participants.length} commit`} />
+      <PanelHeader
+        title="2PC Coordination"
+        value={
+          decision === 'pending' && committedChains.size === 0
+            ? 'pending'
+            : `${committedChains.size}/${participants.length} chains committed`
+        }
+      />
       <div className="mini-list">
         {participants.length ? (
-          participants.map((chain, idx) => {
-            const vote = decision !== 'abort' || idx < commitCount;
+          participants.map((chainId) => {
+            const chain = chainView(chains, chainId);
+            const evidence = mailbox.filter((message) => message.chainId === chainId);
+            const sealed = evidence.length > 0;
+            const aborted = decision === 'abort';
             return (
-              <div className="mini-row" key={`${chain.id}-${idx}`}>
+              <div className="mini-row" key={chainId}>
                 <Glyph chain={chain} />
                 <strong>{chain.name}</strong>
-                <span className="mono muted">{clock(detail?.instance?.decidedAt ?? current.updatedAt)}</span>
-                <span className={vote ? 'decision commit' : 'decision abort'}>{vote ? 'COMMIT' : 'ABORT'}</span>
+                <span className="mono muted">
+                  {sealed
+                    ? `sealed ${clock(evidence[0]?.ts)}`
+                    : aborted
+                      ? 'no inclusion'
+                      : 'awaiting inclusion'}
+                </span>
+                <span className={sealed ? 'decision commit' : aborted ? 'decision abort' : 'decision'}>
+                  {sealed ? 'COMMITTED' : aborted ? 'ABORTED' : 'PENDING'}
+                </span>
               </div>
             );
           })
         ) : (
-          <EmptyPanel>no participant votes yet</EmptyPanel>
+          <EmptyPanel>participants unknown until a signal lands</EmptyPanel>
+        )}
+        <p className="offchain-note">
+          Votes are exchanged off-chain between the sequencers and the publisher; committed means the
+          chain sealed its mailbox writes.
+        </p>
+      </div>
+    </section>
+  );
+
+  const superblockPanel = (
+    <section className="panel">
+      <h3>Settlement</h3>
+      <div className="mini-list">
+        {detail?.superblock ? (
+          <>
+            <FieldRow
+              label="Superblock"
+              value={`#${detail.superblock.number} (${detail.superblock.status})`}
+            />
+            {detail.superblock.gameAddress && (
+              <FieldRow
+                label="Dispute Game"
+                value={shortHex(detail.superblock.gameAddress, 8, 6)}
+                copy={detail.superblock.gameAddress}
+              />
+            )}
+            {detail.superblock.l1Tx && (
+              <FieldRow label="L1 Tx" value={shortHex(detail.superblock.l1Tx, 8, 6)} copy={detail.superblock.l1Tx} />
+            )}
+            {detail.superblock.chains.map((block) => {
+              const chain = chainView(chains, block.chainId);
+              return (
+                <div className="block-row" key={block.chainId}>
+                  <div>
+                    <Glyph chain={chain} size={22} />
+                    <strong>{chain.name}</strong>
+                    <span className="mono">{block.l2Block == null ? 'L2 pending' : `L2 #${block.l2Block}`}</span>
+                  </div>
+                  <small className="mono">
+                    {shortHex(block.preRoot)} -&gt; {shortHex(block.postRoot)}
+                  </small>
+                </div>
+              );
+            })}
+            <Button variant="subtle" size="sm" onClick={() => onSuperblock(detail.superblock!.number)}>
+              View superblock
+            </Button>
+          </>
+        ) : (
+          <EmptyPanel>not yet settled into a superblock</EmptyPanel>
         )}
       </div>
     </section>
@@ -92,10 +191,12 @@ export function TxDetailPage({
         <div className="detail-hero-top">
           <div className="hero-status">
             <StatusPill status={current.status} large />
-            <span className="mono muted">{timeAgo(current.updatedAt)} - {clock(current.updatedAt)}</span>
+            <span className="mono muted">
+              {timeAgo(current.updatedAt)} - {clock(current.updatedAt)}
+            </span>
           </div>
           <div className="hash-chip">
-            <span className="mono">XT Hash</span>
+            <span className="mono">Session</span>
             <strong className="mono">{shortHex(current.xtHash, 8, 5)}</strong>
             <CopyButton value={current.xtHash} />
           </div>
@@ -122,61 +223,69 @@ export function TxDetailPage({
         </div>
         <DetailMeta
           rows={[
-            ['Instance ID', shortHex(current.instanceId, 8, 6)],
             ['Stage', stageName(current.stage)],
-            ['Sender', shortHex(current.sender, 8, 5)],
-            ['Value', formatEthCompact(current.valueWei)],
+            ['Action', current.label ?? 'message'],
+            ['Initial Time', clock(current.firstSeenAt)],
+            ['Complete Time', completeAt ? clock(completeAt) : 'pending'],
             ['Superblock', current.superblockNumber ? `#${current.superblockNumber}` : 'pending'],
-            ['Updated', clock(current.updatedAt)],
+            ['Protocols', protocols.join(' + ')],
           ]}
         />
       </div>
 
       {tab === 'overview' && (
         <>
+          <section className="panel panel-spaced">
+            <h3>Transaction</h3>
+            <div className="mini-list">
+              <FieldRow
+                label="Source Tx"
+                value={current.srcTxHash ? shortHex(current.srcTxHash, 10, 8) : 'pending'}
+                copy={current.srcTxHash}
+              />
+              <FieldRow
+                label="Delivery Tx"
+                value={deliveryMsg?.txHash ? shortHex(deliveryMsg.txHash, 10, 8) : 'pending'}
+                copy={deliveryMsg?.txHash}
+              />
+              {transfers.length ? (
+                transfers.map((transfer) => {
+                  const src = chainView(chains, transfer.srcChain);
+                  const dst = chainView(chains, transfer.dstChain);
+                  return (
+                    <div className="action-row" key={transfer.id}>
+                      <span className="mono action-type">{transfer.kind === 'eth' ? 'ETH TRANSFER' : 'TOKEN TRANSFER'}</span>
+                      <span className="action-leg">
+                        <Glyph chain={src} size={18} />
+                        <strong className="mono">{shortHex(transfer.sender, 6, 4)}</strong>
+                        <CopyButton value={transfer.sender} />
+                      </span>
+                      <span className="tx-direction" aria-hidden="true">
+                        -&gt;
+                      </span>
+                      <span className="action-leg">
+                        <Glyph chain={dst} size={18} />
+                        <strong className="mono">{shortHex(transfer.receiver, 6, 4)}</strong>
+                        <CopyButton value={transfer.receiver} />
+                      </span>
+                      <strong className="action-amount mono">{transferAmount(transfer, tokens)}</strong>
+                    </div>
+                  );
+                })
+              ) : (
+                <FieldRow label="Action" value={current.label ?? 'mailbox message'} />
+              )}
+              {current.valueWei && <FieldRow label="Value" value={formatEthCompact(current.valueWei)} />}
+            </div>
+          </section>
           <div className="two-col">
             <section className="panel">
               <h3>Lifecycle</h3>
               <Timeline xt={current} />
             </section>
             <div className="stack">
-              {votesPanel}
-              <section className="panel">
-                <h3>Block State</h3>
-                <div className="mini-list">
-                  {detail?.superblock?.chains.length ? (
-                    detail.superblock.chains.map((block) => {
-                      const chain = chainView(chains, block.chainId);
-                      return (
-                        <div className="block-row" key={block.chainId}>
-                          <div>
-                            <Glyph chain={chain} size={22} />
-                            <strong>{chain.name}</strong>
-                            <span className="mono">{block.l2Block == null ? 'L2 pending' : `L2 #${fmt(block.l2Block)}`}</span>
-                          </div>
-                          <small className="mono">{shortHex(block.preRoot)} -&gt; {shortHex(block.postRoot)}</small>
-                        </div>
-                      );
-                    })
-                  ) : mailboxBlocks.length ? (
-                    mailboxBlocks.map((message) => {
-                      const chain = chainView(chains, message.chainId);
-                      return (
-                        <div className="block-row" key={`${message.chainId}-${message.blockHash}`}>
-                          <div>
-                            <Glyph chain={chain} size={22} />
-                            <strong>{chain.name}</strong>
-                            <span className="mono">log {message.logIndex}</span>
-                          </div>
-                          <small className="mono">{shortHex(message.blockHash)}</small>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <EmptyPanel>block state pending</EmptyPanel>
-                  )}
-                </div>
-              </section>
+              {coordinationPanel}
+              {superblockPanel}
             </div>
           </div>
           <section className="panel panel-spaced">
@@ -195,50 +304,59 @@ export function TxDetailPage({
       {tab === 'advanced' && (
         <>
           <section className="panel panel-spaced">
-            <h3>Raw Fields</h3>
-            <div className="mini-list">
-              {(
-                [
-                  ['XT Hash', current.xtHash],
-                  ['Instance ID', current.instanceId],
-                  ['Sender', current.sender ?? '-'],
-                  ['Value (wei)', current.valueWei ?? '0'],
-                  ['Chains', current.chains.join(', ') || '-'],
-                  ['Stage', `${current.stage} (${stageName(current.stage)})`],
-                  ['Status', current.status],
-                  ['First Seen', current.firstSeenAt],
-                  ['Updated', current.updatedAt],
-                ] as Array<[string, string]>
-              ).map(([label, value]) => (
-                <div className="advanced-row" key={label}>
-                  <span className="mono">{label}</span>
-                  <strong className="mono">{value}</strong>
-                  <CopyButton value={value} />
-                </div>
-              ))}
+            <h3>API Request</h3>
+            <div className="curl-block">
+              <code className="mono">{curl}</code>
+              <CopyButton value={curl} />
             </div>
+          </section>
+          <section className="panel panel-spaced">
+            <div className="panel-header">
+              <h3>Raw Response</h3>
+              <CopyButton value={JSON.stringify(detail ?? current, null, 2)} />
+            </div>
+            <pre className="raw-json mono">{JSON.stringify(detail ?? current, null, 2)}</pre>
           </section>
           <section className="panel panel-spaced">
             <h3>Observed Signals</h3>
             <div className="mini-list">
-              {mailbox.length ? (
-                mailbox.map((message) => {
-                  const chain = chainView(chains, message.chainId);
-                  return (
-                    <div className="block-row" key={message.id}>
-                      <div>
-                        <Glyph chain={chain} size={22} />
-                        <strong>
-                          {message.direction === 'in' ? 'inbox write' : 'outbox write'} - {message.label ?? 'message'}
-                        </strong>
-                        <span className="mono">log {message.logIndex}</span>
+              {mailbox.length || transfers.length ? (
+                <>
+                  {transfers.map((transfer) => {
+                    const chain = chainView(chains, transfer.chainId);
+                    return (
+                      <div className="block-row" key={`t-${transfer.id}`}>
+                        <div>
+                          <Glyph chain={chain} size={22} />
+                          <strong>bridge {transfer.kind === 'eth' ? 'eth' : 'token'} transfer</strong>
+                          <span className="mono">{transferAmount(transfer, tokens)}</span>
+                        </div>
+                        <small className="mono">
+                          {transfer.txHash ? shortHex(transfer.txHash, 8, 6) : shortHex(transfer.session, 8, 6)} -{' '}
+                          {clock(transfer.ts)}
+                        </small>
                       </div>
-                      <small className="mono">
-                        block {shortHex(message.blockHash)} - {clock(message.ts)}
-                      </small>
-                    </div>
-                  );
-                })
+                    );
+                  })}
+                  {mailbox.map((message) => {
+                    const chain = chainView(chains, message.chainId);
+                    return (
+                      <div className="block-row" key={`m-${message.id}`}>
+                        <div>
+                          <Glyph chain={chain} size={22} />
+                          <strong>
+                            {message.direction === 'in' ? 'inbox write' : 'outbox write'} - {message.label ?? 'message'}
+                          </strong>
+                          <span className="mono">log {message.logIndex}</span>
+                        </div>
+                        <small className="mono">
+                          {message.txHash ? shortHex(message.txHash, 8, 6) : shortHex(message.blockHash, 8, 6)} -{' '}
+                          {clock(message.ts)}
+                        </small>
+                      </div>
+                    );
+                  })}
+                </>
               ) : (
                 <EmptyPanel>no sealed signals recorded yet</EmptyPanel>
               )}
@@ -253,7 +371,7 @@ export function TxDetailPage({
             <h3>Lifecycle</h3>
             <Timeline xt={current} />
           </section>
-          <div className="stack">{votesPanel}</div>
+          <div className="stack">{coordinationPanel}</div>
         </div>
       )}
     </>

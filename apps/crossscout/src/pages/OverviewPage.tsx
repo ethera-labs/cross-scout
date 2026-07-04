@@ -1,21 +1,32 @@
 import { useState } from 'react';
-import type { MailboxView, NetworkStats, Superblock, Xt } from '@cross-scout/sdk';
+import type { ActivityPoint, AssetVolume, NetworkStats, RouteVolume, Superblock, Xt } from '@cross-scout/sdk';
+import { AreaChart } from '../components/AreaChart';
 import type { FlowMode } from '../components/FlowChart';
 import { FlowChart } from '../components/FlowChart';
 import { EmptyPanel, GhostButton, SectionTitle } from '../components/primitives';
 import { SuperblockRow, TxRow } from '../components/rows';
 import { StatGrid } from '../components/StatGrid';
+import { TopAssets } from '../components/TopAssets';
+import type { AnalyticsWindow } from '../lib/api';
 import type { ChainView } from '../lib/chains';
-import { downloadXtsCsv } from '../lib/csv';
-import { chainName } from '../lib/format';
+import { downloadRoutesCsv } from '../lib/csv';
+import { chainName, compactNumber, fmt, weiToEth } from '../lib/format';
 import type { Network } from '../lib/nav';
 import { Button } from '../ui/Button';
+
+const windows: AnalyticsWindow[] = ['24h', '7d', '30d', 'all'];
+
+type ActivityMetric = 'transactions' | 'volume';
 
 export function OverviewPage({
   stats,
   xts,
   superblocks,
-  mailbox,
+  activity,
+  routes,
+  assets,
+  window: analyticsWindow,
+  setWindow,
   chains,
   byId,
   network,
@@ -27,7 +38,11 @@ export function OverviewPage({
   stats: NetworkStats | null;
   xts: Xt[];
   superblocks: Superblock[];
-  mailbox: MailboxView | null;
+  activity: ActivityPoint[];
+  routes: RouteVolume[];
+  assets: AssetVolume[];
+  window: AnalyticsWindow;
+  setWindow: (window: AnalyticsWindow) => void;
   chains: ChainView[];
   byId: Map<number, ChainView>;
   network: Network;
@@ -37,6 +52,7 @@ export function OverviewPage({
   onSuperblock: (sb: Superblock) => void;
 }) {
   const [flowMode, setFlowMode] = useState<FlowMode>('volume');
+  const [metric, setMetric] = useState<ActivityMetric>('transactions');
   const siteUrl = import.meta.env.VITE_NETWORK_SITE_URL as string | undefined;
 
   return (
@@ -57,9 +73,9 @@ export function OverviewPage({
           </div>
         </div>
       </div>
-      <StatGrid stats={stats} xts={xts} mailbox={mailbox} />
+      <StatGrid stats={stats} />
 
-      <SectionTitle title="Cross-Chain Activity" action={<GhostButton onClick={onTxs}>View all</GhostButton>} />
+      <SectionTitle title="Cross-Chain Transfers" action={<GhostButton onClick={onTxs}>View all</GhostButton>} />
       <div className="activity-toolbar">
         <div className="tabs">
           {(['volume', 'transfers'] as FlowMode[]).map((mode) => (
@@ -74,12 +90,64 @@ export function OverviewPage({
           ))}
         </div>
         <div className="toolbar-actions">
-          <button type="button" onClick={() => downloadXtsCsv(xts)} disabled={xts.length === 0}>
+          <div className="tabs">
+            {windows.map((item) => (
+              <button
+                type="button"
+                key={item}
+                className={analyticsWindow === item ? 'tab active' : 'tab'}
+                onClick={() => setWindow(item)}
+              >
+                {item === 'all' ? 'All' : `Last ${item}`}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => downloadRoutesCsv(routes, analyticsWindow)} disabled={routes.length === 0}>
             Download
           </button>
         </div>
       </div>
-      <FlowChart xts={xts} chains={chains} mode={flowMode} />
+      <FlowChart
+        routes={routes}
+        chains={chains}
+        mode={flowMode}
+        empty={
+          flowMode === 'volume'
+            ? 'no bridged value in the current window'
+            : 'no transfers in the current window'
+        }
+      />
+
+      <SectionTitle
+        title="Activity"
+        action={
+          <div className="tabs">
+            {(['transactions', 'volume'] as ActivityMetric[]).map((item) => (
+              <button
+                type="button"
+                key={item}
+                className={metric === item ? 'tab active' : 'tab'}
+                onClick={() => setMetric(item)}
+              >
+                {item === 'transactions' ? 'Transactions' : 'Volume'}
+              </button>
+            ))}
+          </div>
+        }
+      />
+      <AreaChart
+        points={activity.map((point) => ({
+          ts: point.bucket,
+          value: metric === 'transactions' ? point.count : weiToEth(point.volumeWei),
+        }))}
+        formatValue={(value) =>
+          metric === 'transactions' ? fmt(value) : `${compactNumber(value)} ETH`
+        }
+        empty="no activity in the current window"
+      />
+
+      <SectionTitle title="Top Transferred Assets" />
+      <TopAssets assets={assets} chains={byId} window={analyticsWindow} />
 
       <SectionTitle title="Latest Cross-Chain Transactions" action={<GhostButton onClick={onTxs}>View all</GhostButton>} />
       {xts.length === 0 ? (

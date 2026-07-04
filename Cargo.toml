@@ -79,6 +79,11 @@ alloy = { version = "2", default-features = false, features = [
   "reqwest-rustls-tls",
 ] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# Shares alloy's rustls stack; used by the indexer-core publisher stats poller.
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls",
+  "json",
+] }
 
 # config
 figment = { version = "0.10", features = ["toml", "env"] }

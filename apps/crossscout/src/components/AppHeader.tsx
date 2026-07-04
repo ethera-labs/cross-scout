@@ -19,6 +19,7 @@ export function AppHeader({
   nav,
   onSelectRollup,
   activeChainId,
+  showNetwork,
 }: {
   page: Page;
   theme: Theme;
@@ -34,6 +35,7 @@ export function AppHeader({
   nav: (page: Page) => void;
   onSelectRollup: (chain: number) => void;
   activeChainId: number | null;
+  showNetwork: boolean;
 }) {
   const host = chains.find((chain) => chain.current) ?? chains[0];
   const active = chains.find((chain) => chain.id === activeChainId) ?? host;
@@ -53,9 +55,10 @@ export function AppHeader({
   const navLinks: Array<[Page, string]> = [
     ['txs', 'TRANSACTIONS'],
     ['superblocks', 'SUPERBLOCKS'],
-    ['instances', 'INSTANCES'],
+    ['instances', 'SESSIONS'],
     ['mailbox', 'MAILBOX'],
     ['rollups', 'ROLLUPS'],
+    ...(showNetwork ? ([['network', 'NETWORK']] as Array<[Page, string]>) : []),
   ];
   const activeNav = (item: Page) => {
     if (item === 'txs') return page === 'txs' || page === 'txDetail';
@@ -163,7 +166,7 @@ export function AppHeader({
               onKeyDown={(event) => {
                 if (event.key === 'Enter') onSearchSubmit();
               }}
-              placeholder="Search by tx hash, instance ID, superblock or address"
+              placeholder="Search by tx hash, session, superblock or address"
             />
             <span className="mono">CMD K</span>
           </div>

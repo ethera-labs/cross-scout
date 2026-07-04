@@ -60,8 +60,20 @@ pub fn topic0(log: &Log) -> Option<B256> {
     log.topics().first().copied()
 }
 
+/// Blocks re-scanned behind the head when a discontinuity is detected. Log
+/// rows are keyed by log coordinates, so re-scanning is idempotent; the margin
+/// bounds how far below the first post-reorg head a fork can sit and still be
+/// repaired by the rewind.
+const REORG_RESCAN_DEPTH: u64 = 64;
+
 /// Poll the decoder's filter from `start_block` onward in bounded ranges,
 /// decode each log, and forward onto `sink`. Runs until the sink closes.
+///
+/// Heads between polls are skipped; that only coarsens reorg detection, never
+/// correctness (canonical rows key on block hashes). When the observed head
+/// does not extend the previous one, the cursor rewinds so the replaced range
+/// is re-scanned on the new branch, mirroring the engine's rollback of the
+/// stale rows.
 ///
 /// # Errors
 /// Returns [`SinkClosed`] once the correlation engine drops the receiver.
@@ -75,13 +87,33 @@ pub async fn poll_logs<D: LogDecoder>(
         .erased();
     let base_filter = decoder.filter();
     let mut cursor = cfg.start_block;
+    let mut prev_head: Option<(u64, B256)> = None;
     debug!(source = cfg.name, start = ?cursor, "starting log poller");
 
     loop {
         match provider.get_block_number().await {
             Ok(latest) => {
                 if cfg.track_heads {
-                    emit_head(&provider, cfg.chain_id, latest, &sink).await?;
+                    if let Some((number, hash, parent_hash)) =
+                        emit_head(&provider, cfg.chain_id, latest, &sink).await?
+                    {
+                        if let Some((prev_number, prev_hash)) = prev_head {
+                            let discontinuous = (number == prev_number + 1
+                                && parent_hash != prev_hash)
+                                || (number <= prev_number && hash != prev_hash);
+                            if discontinuous {
+                                let rescan = latest.saturating_sub(REORG_RESCAN_DEPTH);
+                                if cursor.is_none_or(|c| c > rescan) {
+                                    warn!(
+                                        source = cfg.name,
+                                        rescan, "head discontinuity; rewinding cursor"
+                                    );
+                                    cursor = Some(rescan);
+                                }
+                            }
+                        }
+                        prev_head = Some((number, hash));
+                    }
                 }
                 let from = cursor.get_or_insert(latest);
                 while *from <= latest {
@@ -110,23 +142,23 @@ pub async fn poll_logs<D: LogDecoder>(
 }
 
 /// Emit the current sealed head so the engine can advance `chain_heads` and
-/// detect reorgs. Heads between polls are skipped; that only coarsens reorg
-/// detection, never correctness (canonical rows key on block hashes).
+/// detect reorgs. Returns `(number, hash, parent_hash)` for the poller's own
+/// continuity check, or `None` when the head could not be fetched.
 async fn emit_head(
     provider: &DynProvider,
     chain_id: i32,
     number: u64,
     sink: &EventSink,
-) -> Result<(), SourceError> {
+) -> Result<Option<(u64, B256, B256)>, SourceError> {
     let block = match provider
         .get_block_by_number(BlockNumberOrTag::Number(number))
         .await
     {
         Ok(Some(b)) => b,
-        Ok(None) => return Ok(()),
+        Ok(None) => return Ok(None),
         Err(e) => {
             warn!(chain_id, number, error = %e, "head fetch failed; skipping");
-            return Ok(());
+            return Ok(None);
         }
     };
     let h = &block.header;
@@ -149,5 +181,5 @@ async fn emit_head(
         },
     );
     sink.send(ev).await.map_err(|_| SinkClosed)?;
-    Ok(())
+    Ok(Some((number, h.hash, h.parent_hash)))
 }

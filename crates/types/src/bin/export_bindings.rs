@@ -10,7 +10,8 @@
 //! pulls in the ts-rs export surface.
 
 use cross_scout_types::{
-    Instance, MailboxMessage, NetworkStats, Stage, StreamEvent, Superblock, Xt, XtDetail, XtPage,
+    ActivityPoint, AssetVolume, Instance, MailboxMessage, NetworkStats, PeriodInfo,
+    PublisherSnapshot, Stage, StreamEvent, Superblock, TokenMeta, Transfer, Xt, XtDetail, XtPage,
 };
 use ts_rs::TS;
 
@@ -28,6 +29,12 @@ fn main() -> Result<(), ts_rs::ExportError> {
     NetworkStats::export_all_to(OUT_DIR)?;
     StreamEvent::export_all_to(OUT_DIR)?;
     Stage::export_all_to(OUT_DIR)?;
+    Transfer::export_all_to(OUT_DIR)?;
+    TokenMeta::export_all_to(OUT_DIR)?;
+    ActivityPoint::export_all_to(OUT_DIR)?;
+    AssetVolume::export_all_to(OUT_DIR)?;
+    PublisherSnapshot::export_all_to(OUT_DIR)?;
+    PeriodInfo::export_all_to(OUT_DIR)?;
 
     println!("exported TypeScript bindings to {OUT_DIR}");
     Ok(())

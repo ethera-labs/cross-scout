@@ -2,6 +2,7 @@
 import type { Decision } from "./Decision";
 
 /**
- * A cross-chain session and its derived decision.
+ * A cross-chain session and its derived decision, keyed by the mailbox
+ * session id (the only cross-chain identity observable on-chain).
  */
-export type Instance = { instanceId: string, xtHash: string | null, participants: Array<number>, decision: Decision, startedAt: string | null, decidedAt: string | null, };
+export type Instance = { session: string, xtHash: string | null, participants: Array<number>, decision: Decision, startedAt: string | null, decidedAt: string | null, };

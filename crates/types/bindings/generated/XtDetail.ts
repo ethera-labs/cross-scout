@@ -2,9 +2,15 @@
 import type { Instance } from "./Instance";
 import type { MailboxMessage } from "./MailboxMessage";
 import type { Superblock } from "./Superblock";
+import type { TokenMeta } from "./TokenMeta";
+import type { Transfer } from "./Transfer";
 import type { Xt } from "./Xt";
 
 /**
  * The joined view returned by `GET /v1/xts/:hash`.
  */
-export type XtDetail = { xt: Xt, instance: Instance | null, mailbox: Array<MailboxMessage>, superblock: Superblock | null, };
+export type XtDetail = { xt: Xt, instance: Instance | null, mailbox: Array<MailboxMessage>, superblock: Superblock | null, transfers: Array<Transfer>, 
+/**
+ * Metadata for every token referenced by `transfers`.
+ */
+tokens: Array<TokenMeta>, };

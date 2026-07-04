@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type {
+  ActivityPoint,
+  AssetVolume,
   MailboxView,
   NetworkStats,
+  NetworkView,
   RollupView,
+  RouteVolume,
   StreamEvent,
   Superblock,
   Xt,
   XtDetail,
 } from '@cross-scout/sdk';
 import { AppHeader } from './components/AppHeader';
+import type { AnalyticsWindow } from './lib/api';
 import { api } from './lib/api';
 import { chainById, makeChains } from './lib/chains';
 import { chainName } from './lib/format';
@@ -17,6 +22,7 @@ import type { Network, Page, Theme } from './lib/nav';
 import type { SuperblockFilter, XtFilter } from './lib/status';
 import { InstancesPage } from './pages/InstancesPage';
 import { MailboxPage } from './pages/MailboxPage';
+import { NetworkPage } from './pages/NetworkPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { RollupDetailPage } from './pages/RollupDetailPage';
 import { RollupsPage } from './pages/RollupsPage';
@@ -65,6 +71,11 @@ export function App() {
   const [stats, setStats] = useState<NetworkStats | null>(null);
   const [xts, setXts] = useState<Xt[]>([]);
   const [superblocks, setSuperblocks] = useState<Superblock[]>([]);
+  const [activity, setActivity] = useState<ActivityPoint[]>([]);
+  const [routes, setRoutes] = useState<RouteVolume[]>([]);
+  const [assets, setAssets] = useState<AssetVolume[]>([]);
+  const [analyticsWindow, setAnalyticsWindow] = useState<AnalyticsWindow>('24h');
+  const [networkView, setNetworkView] = useState<NetworkView | null>(null);
   const [mailbox, setMailbox] = useState<MailboxView | null>(null);
   const [rollup, setRollup] = useState<RollupView | null>(null);
   const [selectedChain, setSelectedChain] = useState<number | null>(null);
@@ -110,6 +121,28 @@ export function App() {
     }, 15_000);
     return () => window.clearInterval(id);
   }, [loadCore]);
+
+  const loadAnalytics = useCallback(async () => {
+    const results = await Promise.allSettled([
+      api.getActivity({ window: analyticsWindow }),
+      api.getRoutes(analyticsWindow),
+      api.getAssets(analyticsWindow),
+      api.getNetwork(),
+    ]);
+    const [activityResult, routesResult, assetsResult, networkResult] = results;
+    if (activityResult?.status === 'fulfilled') setActivity(activityResult.value);
+    if (routesResult?.status === 'fulfilled') setRoutes(routesResult.value);
+    if (assetsResult?.status === 'fulfilled') setAssets(assetsResult.value);
+    if (networkResult?.status === 'fulfilled') setNetworkView(networkResult.value);
+  }, [analyticsWindow]);
+
+  useEffect(() => {
+    void loadAnalytics();
+    const id = window.setInterval(() => {
+      void loadAnalytics();
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [loadAnalytics]);
 
   useEffect(() => {
     const stream = api.stream(
@@ -200,19 +233,30 @@ export function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  /** Enter in the search box: jump straight to an exact hash or superblock. */
+  /** Enter in the search box: resolve through the api and jump to the match. */
   const searchJump = () => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return;
-    const norm = q.startsWith('0x') ? q : `0x${q}`;
-    const hit = xts.find(
-      (xt) => xt.xtHash.toLowerCase() === norm || xt.instanceId.toLowerCase() === norm,
-    );
-    if (hit) {
-      goTx(hit.xtHash);
-      return;
-    }
-    if (/^\d+$/.test(q)) goSuperblock(Number(q));
+    const norm = /^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$/.test(q) ? `0x${q}` : q;
+    void api
+      .search(norm)
+      .then(({ results }) => {
+        for (const result of results) {
+          if (result.type === 'xt') {
+            goTx(result.xt.xtHash);
+            return;
+          }
+          if (result.type === 'superblock') {
+            goSuperblock(result.superblock.number);
+            return;
+          }
+          if (result.type === 'address') {
+            nav('txs');
+            return;
+          }
+        }
+      })
+      .catch(() => undefined);
   };
 
   useEffect(() => {
@@ -266,7 +310,7 @@ export function App() {
   const filteredXts = useMemo(() => {
     if (!normalizedQuery) return xts;
     return xts.filter((xt) =>
-      [xt.xtHash, xt.instanceId, xt.sender, chainName(xt.srcChain), chainName(xt.dstChain)]
+      [xt.xtHash, xt.sender, xt.receiver, xt.label, chainName(xt.srcChain), chainName(xt.dstChain)]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
     );
@@ -293,6 +337,7 @@ export function App() {
           filter={xtFilter}
           setFilter={setXtFilter}
           onTx={goTx}
+          live={streamUp}
         />
       );
       break;
@@ -304,8 +349,12 @@ export function App() {
           loading={detailLoading}
           chains={byId}
           back={() => nav('txs')}
+          onSuperblock={goSuperblock}
         />
       );
+      break;
+    case 'network':
+      content = <NetworkPage view={networkView} loading={loading} />;
       break;
     case 'superblocks':
       content = (
@@ -376,7 +425,11 @@ export function App() {
           stats={stats}
           xts={filteredXts}
           superblocks={filteredSuperblocks}
-          mailbox={mailbox}
+          activity={activity}
+          routes={routes}
+          assets={assets}
+          window={analyticsWindow}
+          setWindow={setAnalyticsWindow}
           chains={chains}
           byId={byId}
           network={network}
@@ -405,6 +458,7 @@ export function App() {
         nav={nav}
         onSelectRollup={goRollup}
         activeChainId={page === 'rollupDetail' ? selectedChain : null}
+        showNetwork={networkView?.publisher != null}
       />
       <main>
         {error && <div className="no-results">{error}</div>}

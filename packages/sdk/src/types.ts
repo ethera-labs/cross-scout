@@ -37,21 +37,28 @@ export const STAGE_ROLLED_BACK = 255;
 
 export interface Xt {
   xtHash: string;
-  instanceId: string;
   srcChain: number | null;
   dstChain: number | null;
   chains: number[];
   sender: string | null;
+  receiver: string | null;
+  label: string | null;
+  srcTxHash: string | null;
   valueWei: string | null;
   status: XtStatus;
   stage: number;
   superblockNumber: number | null;
   firstSeenAt: string;
+  preconfirmedAt: string | null;
+  includedAt: string | null;
+  settledAt: string | null;
+  finalizedAt: string | null;
+  failedAt: string | null;
   updatedAt: string;
 }
 
 export interface Instance {
-  instanceId: string;
+  session: string;
   xtHash: string | null;
   participants: number[];
   decision: Decision;
@@ -73,6 +80,7 @@ export interface MailboxMessage {
   chainId: number;
   blockHash: string;
   logIndex: number;
+  txHash: string | null;
   ts: string;
 }
 
@@ -91,6 +99,7 @@ export interface Superblock {
   parentHash: string | null;
   status: SuperblockStatus;
   rootClaim: string | null;
+  gameAddress: string | null;
   xtCount: number;
   proveMs: number | null;
   l1Tx: string | null;
@@ -101,11 +110,38 @@ export interface Superblock {
   chains: SuperblockChain[];
 }
 
+export interface Transfer {
+  id: number;
+  session: string;
+  kind: 'eth' | 'erc20';
+  token: string | null;
+  amount: string;
+  srcChain: number;
+  dstChain: number;
+  sender: string;
+  receiver: string;
+  messageId: string | null;
+  chainId: number;
+  txHash: string | null;
+  safe: boolean;
+  ts: string;
+}
+
+export interface TokenMeta {
+  chainId: number;
+  address: string;
+  symbol: string | null;
+  name: string | null;
+  decimals: number | null;
+}
+
 export interface XtDetail {
   xt: Xt;
   instance: Instance | null;
   mailbox: MailboxMessage[];
   superblock: Superblock | null;
+  transfers: Transfer[];
+  tokens: TokenMeta[];
 }
 
 export interface RouteVolume {
@@ -113,6 +149,14 @@ export interface RouteVolume {
   dstChain: number;
   count: number;
   valueWei: string;
+  transfers: number;
+}
+
+export interface StatsWindow {
+  xts: number;
+  transfers: number;
+  volumeWei: string;
+  messages: number;
 }
 
 export interface NetworkStats {
@@ -126,6 +170,43 @@ export interface NetworkStats {
   superblocks: number;
   avgProveMs: number | null;
   routes: RouteVolume[];
+  window24h: StatsWindow;
+  commitRate: number | null;
+  lastFinalizedSuperblock: number | null;
+}
+
+export interface ActivityPoint {
+  bucket: string;
+  count: number;
+  volumeWei: string;
+  transfers: number;
+}
+
+export interface AssetVolume {
+  token: TokenMeta | null;
+  transfers: number;
+  amount: string;
+  chains: number[];
+}
+
+export interface PublisherSnapshot {
+  ts: string;
+  periodId: number;
+  nextSuperblock: number;
+  lastFinalized: number;
+  queued: number;
+  activeXts: number;
+  activeChains: number;
+  connections: number;
+  registeredChains: number;
+  pendingProofs: number;
+}
+
+export interface PeriodInfo {
+  periodId: number;
+  superblockNumber: number | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
 }
 
 export interface XtPage {
@@ -155,3 +236,21 @@ export type StreamEvent =
   | { type: 'newXt'; xt: Xt }
   | { type: 'xtUpdated'; xt: Xt }
   | { type: 'superblockUpdated'; superblock: Superblock };
+
+/** TS-only: assembled by the api, no Rust DTO. */
+export interface NetworkView {
+  publisher: PublisherSnapshot | null;
+  periods: PeriodInfo[];
+  series: PublisherSnapshot[];
+}
+
+export type SearchResult =
+  | { type: 'xt'; xt: Xt }
+  | { type: 'superblock'; superblock: Superblock }
+  | { type: 'address'; address: string; xtCount: number }
+  | { type: 'token'; token: TokenMeta };
+
+export interface SearchResponse {
+  query: string;
+  results: SearchResult[];
+}

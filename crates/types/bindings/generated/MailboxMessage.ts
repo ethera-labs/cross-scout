@@ -4,4 +4,4 @@ import type { Direction } from "./Direction";
 /**
  * A mailbox message crossing between rollups.
  */
-export type MailboxMessage = { id: bigint, direction: Direction, srcChain: number | null, dstChain: number | null, session: string | null, sender: string | null, receiver: string | null, label: string | null, xtHash: string | null, superblockNumber: bigint | null, chainId: number, blockHash: string, logIndex: number, ts: string, };
+export type MailboxMessage = { id: bigint, direction: Direction, srcChain: number | null, dstChain: number | null, session: string | null, sender: string | null, receiver: string | null, label: string | null, xtHash: string | null, superblockNumber: bigint | null, chainId: number, blockHash: string, logIndex: number, txHash: string | null, ts: string, };

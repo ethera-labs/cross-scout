@@ -10,4 +10,5 @@ export type Page =
   | 'instances'
   | 'mailbox'
   | 'rollups'
-  | 'rollupDetail';
+  | 'rollupDetail'
+  | 'network';

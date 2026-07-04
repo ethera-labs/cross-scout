@@ -69,8 +69,14 @@ sol! {
 }
 
 /// Decode the superblock payload out of a `create()` call's calldata.
-/// Returns `None` for foreign game types or undecodable extra data.
-pub fn decode_create_calldata(input: &[u8], game_type: u32) -> Option<EventKind> {
+/// `game_address` is the dispute game proxy the factory emitted in the
+/// `DisputeGameCreated` event (the calldata itself never carries it). Returns
+/// `None` for foreign game types or undecodable extra data.
+pub fn decode_create_calldata(
+    input: &[u8],
+    game_type: u32,
+    game_address: Address,
+) -> Option<EventKind> {
     let call = IDisputeGameFactory::createCall::abi_decode(input).ok()?;
     if call._gameType != game_type {
         return None;
@@ -101,6 +107,7 @@ pub fn decode_create_calldata(input: &[u8], game_type: u32) -> Option<EventKind>
         // The batch hash the next superblock references as its parent.
         hash: keccak256(outputs.abi_encode()),
         parent_hash: outputs.parentSuperblockBatchHash,
+        game_address,
         chains,
         transitions,
     })
@@ -172,7 +179,7 @@ impl LogDecoder for SettlementDecoder {
             }
         };
 
-        match decode_create_calldata(tx.input(), self.game_type) {
+        match decode_create_calldata(tx.input(), self.game_type, created.disputeProxy) {
             Some(kind) if self.accepts(&kind) => {
                 vec![DomainEvent::new(meta_of(self.chain_id, log, true), kind)]
             }
@@ -343,6 +350,7 @@ mod tests {
             root_claim: B256::ZERO,
             hash: B256::ZERO,
             parent_hash: B256::ZERO,
+            game_address: Address::ZERO,
             chains,
             transitions: Vec::new(),
         }
@@ -378,12 +386,14 @@ mod tests {
             _extraData: extra,
         };
 
-        let kind = decode_create_calldata(&call.abi_encode(), 5555).expect("decodes");
+        let game = Address::repeat_byte(0x77);
+        let kind = decode_create_calldata(&call.abi_encode(), 5555, game).expect("decodes");
         let EventKind::SuperblockProposed {
             number,
             root_claim,
             hash,
             parent_hash,
+            game_address,
             chains,
             transitions,
         } = kind
@@ -394,6 +404,7 @@ mod tests {
         assert_eq!(root_claim, B256::repeat_byte(0xaa));
         assert_eq!(hash, keccak256(outputs.abi_encode()));
         assert_eq!(parent_hash, B256::repeat_byte(0x01));
+        assert_eq!(game_address, game);
         assert_eq!(chains, vec![4100]);
         assert_eq!(transitions.len(), 1);
         assert_eq!(transitions[0].l2_block, 1234);
@@ -406,7 +417,7 @@ mod tests {
             _rootClaim: B256::ZERO,
             _extraData: Bytes::new(),
         };
-        assert!(decode_create_calldata(&call.abi_encode(), 5555).is_none());
+        assert!(decode_create_calldata(&call.abi_encode(), 5555, Address::ZERO).is_none());
     }
 
     #[test]

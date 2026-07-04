@@ -12,12 +12,14 @@ export function TransactionsPage({
   filter,
   setFilter,
   onTx,
+  live,
 }: {
   xts: Xt[];
   chains: Map<number, ChainView>;
   filter: XtFilter;
   setFilter: (filter: XtFilter) => void;
   onTx: (xt: Xt) => void;
+  live: boolean;
 }) {
   const counts = useMemo(() => {
     const base: Record<XtFilter, number> = {
@@ -39,9 +41,9 @@ export function TransactionsPage({
     <>
       <div className="transactions-titlebar">
         <h2>Transactions</h2>
-        <span className="live-mode mono">
+        <span className={live ? 'live-mode mono' : 'live-mode off mono'} title={live ? 'stream connected' : 'stream disconnected - polling every 15s'}>
           <i />
-          LIVE MODE
+          {live ? 'LIVE' : 'POLLING'}
           <b />
         </span>
       </div>

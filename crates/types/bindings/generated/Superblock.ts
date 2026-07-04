@@ -9,4 +9,8 @@ export type Superblock = { number: bigint, hash: string | null, parentHash: stri
 /**
  * Super-root claim the settlement dispute game was created with.
  */
-rootClaim: string | null, xtCount: number, proveMs: number | null, l1Tx: string | null, l1Block: bigint | null, proposedAt: string | null, validatedAt: string | null, finalizedAt: string | null, chains: Array<SuperblockChain>, };
+rootClaim: string | null, 
+/**
+ * The dispute game proxy the factory created for this superblock.
+ */
+gameAddress: string | null, xtCount: number, proveMs: number | null, l1Tx: string | null, l1Block: bigint | null, proposedAt: string | null, validatedAt: string | null, finalizedAt: string | null, chains: Array<SuperblockChain>, };

@@ -85,8 +85,23 @@ mod tests {
             src_chain: 1,
             dst_chain: 2,
             sender: Address::ZERO,
-            value_wei: Default::default(),
+            receiver: Address::ZERO,
+            asset: None,
+            amount: Default::default(),
+            message_id: None,
         };
         assert_eq!(next_stage(Stage::Requested, &requested), None);
+    }
+
+    #[test]
+    fn settlement_events_do_not_advance_via_the_table() {
+        // Settled/Finalized are set-based, applied by the engine straight
+        // through the store, so the transition table never emits them.
+        let finalized = EventKind::SuperblockFinalized {
+            number: 1,
+            anchor_root: B256::ZERO,
+        };
+        assert_eq!(next_stage(Stage::Included, &finalized), None);
+        assert_eq!(next_stage(Stage::Settled, &finalized), None);
     }
 }

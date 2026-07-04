@@ -28,7 +28,7 @@ export function TxRow({
         </div>
       </div>
       <div className="tx-cell">
-        <span className="mono">{shortHex(xt.instanceId, 6, 8)}</span>
+        <span className="mono">{xt.label ?? 'message'}</span>
         <small className="mono">{xt.superblockNumber ? `superblock #${xt.superblockNumber}` : stageName(xt.stage)}</small>
       </div>
       <div className="tx-cell">
@@ -83,7 +83,7 @@ export function TxTableRow({
       </span>
       <span className="tx-protocol-cell">
         <strong>{xt.chains.length > 2 ? 'Multi-hop XT' : 'Mailbox XT'}</strong>
-        <small className="mono">{shortHex(xt.instanceId, 6, 5)}</small>
+        <small className="mono">{xt.label ?? stageName(xt.stage)}</small>
       </span>
       <span className="tx-status-cell">
         <StatusPill status={xt.status} />

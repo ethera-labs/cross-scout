@@ -46,6 +46,9 @@ impl Runtime {
             }
         };
 
+        // Background workers write the store directly, so hand them a clone
+        // before the correlator takes ownership of the pool.
+        let worker_db = db.clone();
         let correlator = Correlator::new(db, publisher, cfg.stall_timeout_secs);
 
         // Bounded so a slow correlator applies backpressure to ingestion.
@@ -75,6 +78,22 @@ impl Runtime {
                     }
                 }
             });
+        }
+
+        // Token-metadata resolver: fills ERC-20 symbol/name/decimals for tokens
+        // seen in transfers, off the RPCs already configured for ingestion.
+        {
+            let db = worker_db.clone();
+            let cfg = cfg.clone();
+            tokio::spawn(async move { crate::token_resolver::run(db, cfg).await });
+        }
+
+        // Publisher stats poller (only when a publisher URL is configured).
+        if let Some(url) = cfg.publisher_url.clone() {
+            info!(%url, "publisher stats polling enabled");
+            let db = worker_db.clone();
+            let poll_ms = cfg.poll_interval_ms;
+            tokio::spawn(async move { crate::publisher_poll::run(db, url, poll_ms).await });
         }
 
         info!(host_chain = cfg.host_chain_id, "indexer running");

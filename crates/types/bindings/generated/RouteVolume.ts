@@ -3,4 +3,4 @@
 /**
  * Volume between an ordered rollup pair, for the Sankey view.
  */
-export type RouteVolume = { srcChain: number, dstChain: number, count: bigint, valueWei: string, };
+export type RouteVolume = { srcChain: number, dstChain: number, count: bigint, valueWei: string, transfers: bigint, };

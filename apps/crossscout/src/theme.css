@@ -521,6 +521,34 @@
     animation: flowBreathe 5.5s ease-in-out infinite;
   }
 
+  .area-chart {
+    @apply relative overflow-hidden rounded-card border border-cs-line bg-cs-bg-1 px-[22px] pb-2 pt-4;
+  }
+
+  .area-chart svg {
+    @apply block cursor-crosshair;
+  }
+
+  .area-axis {
+    @apply mt-1 flex justify-between text-[10.5px] uppercase text-cs-faint;
+  }
+
+  .area-scale {
+    @apply pointer-events-none absolute right-[26px] top-4 flex h-[228px] flex-col justify-between text-right text-[10.5px] text-cs-faint;
+  }
+
+  .area-tooltip {
+    @apply pointer-events-none absolute top-2 flex -translate-x-1/2 flex-col items-center gap-0.5 rounded-control border border-cs-line-2 bg-cs-bg-2 px-2.5 py-1.5 text-[11px];
+  }
+
+  .area-tooltip strong {
+    @apply text-cs-fg;
+  }
+
+  .area-tooltip span {
+    @apply text-cs-faint;
+  }
+
   .glyph {
     @apply inline-flex shrink-0 items-center justify-center border font-mono font-extrabold leading-none;
   }
@@ -547,6 +575,82 @@
 
   .advanced-row strong {
     @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-cs-fg;
+  }
+
+  .curl-block {
+    @apply flex items-center gap-2.5 overflow-x-auto rounded-control border border-cs-line bg-cs-bg-2 px-3.5 py-2.5;
+  }
+
+  .curl-block code {
+    @apply min-w-0 flex-1 whitespace-nowrap text-[12.5px] text-cs-fg;
+  }
+
+  .raw-json {
+    @apply max-h-[420px] overflow-auto rounded-control border border-cs-line bg-cs-bg-2 p-3.5 text-[12px] leading-relaxed text-cs-dim;
+  }
+
+  .action-row {
+    @apply flex flex-wrap items-center gap-2.5 border-b border-cs-line py-2.5 last:border-b-0;
+  }
+
+  .action-type {
+    @apply shrink-0 rounded-chip bg-cs-accent-soft px-2 py-1 text-[10px] font-extrabold text-cs-accent;
+  }
+
+  .action-leg {
+    @apply flex min-w-0 items-center gap-[7px];
+  }
+
+  .action-amount {
+    @apply ml-auto shrink-0 text-sm text-cs-fg;
+  }
+
+  .offchain-note {
+    @apply mb-0 mt-2.5 text-[11.5px] leading-normal text-cs-faint;
+  }
+
+  .assets-layout {
+    @apply grid gap-4;
+    grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1.1fr);
+  }
+
+  .assets-list {
+    @apply flex min-w-0 flex-col gap-[9px];
+  }
+
+  .assets-head {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 0.8fr);
+  }
+
+  .asset-row {
+    @apply cursor-pointer;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 0.8fr);
+  }
+
+  .asset-row.active {
+    @apply border-cs-accent bg-cs-accent-soft;
+  }
+
+  .asset-row.active .asset-symbol strong {
+    @apply text-cs-accent;
+  }
+
+  .asset-symbol {
+    @apply flex min-w-0 items-center gap-2.5;
+  }
+
+  .asset-symbol strong {
+    @apply overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-bold text-cs-fg;
+  }
+
+  .assets-chart {
+    @apply min-w-0;
+  }
+
+  @media (max-width: 980px) {
+    .assets-layout {
+      grid-template-columns: 1fr;
+    }
   }
 
   .tx-feed,
@@ -648,7 +752,23 @@
 
   .live-mode b::after {
     content: "";
-    @apply absolute right-1 top-1 h-3 w-3 rounded-full bg-white;
+    @apply absolute right-1 top-1 h-3 w-3 rounded-full bg-white transition-[left,right] duration-200;
+  }
+
+  .live-mode.off {
+    @apply text-cs-faint;
+  }
+
+  .live-mode.off i {
+    @apply bg-cs-faint shadow-none;
+  }
+
+  .live-mode.off b {
+    @apply bg-cs-bg-3;
+  }
+
+  .live-mode.off b::after {
+    @apply left-1 right-auto bg-cs-faint;
   }
 
   .tx-toolbar-left {
@@ -1020,6 +1140,10 @@
 
   .timeline-tag.failed {
     @apply bg-cs-bad-soft text-cs-bad;
+  }
+
+  .timeline-tag.upcoming {
+    @apply bg-cs-bg-3 text-cs-faint;
   }
 
   .timeline p {

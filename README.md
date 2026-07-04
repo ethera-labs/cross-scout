@@ -26,10 +26,10 @@ WebSocket.
                              correlate  (session join → lifecycle SM
                                          → reorg reconciliation → upsert)
                                       │
-                    ┌─────────────────┼───────────────────┐
-                    ▼                 ▼                   ▼
-                Postgres            Redis            (ClickHouse)
-              canonical store    live pub/sub        analytics
+                    ┌─────────────────┤
+                    ▼                 ▼
+                Postgres            Redis
+              canonical store    live pub/sub
                     │                 │
                     ▼                 ▼
                      api · Bun + TS (Hono REST + WebSocket)
@@ -99,16 +99,22 @@ cross-scout/
 
 ## Endpoints
 
-| Method | Path                      | Description                                     |
-|--------|---------------------------|-------------------------------------------------|
-| GET    | `/v1/xts`                 | list XTs, filter by `status`, `chain`           |
-| GET    | `/v1/xts/:hash`           | full XT lifecycle, session, mailbox, superblock |
-| GET    | `/v1/instances/:id`       | cross-chain session and its derived decision    |
-| GET    | `/v1/superblocks/:number` | per-chain state transitions                     |
-| GET    | `/v1/mailbox/:chain`      | inbox/outbox roots and message log              |
-| GET    | `/v1/rollups/:chain`      | counterparty stats and recent XTs               |
-| GET    | `/v1/stats`               | network totals and route volumes                |
-| WS     | `/v1/stream`              | live feed of new XTs and superblock changes     |
+| Method | Path                            | Description                                               |
+|--------|---------------------------------|-----------------------------------------------------------|
+| GET    | `/v1/xts`                       | list XTs, filter by `status`, `chain`, `address`, `token` |
+| GET    | `/v1/xts/:hash`                 | full XT lifecycle, transfers, mailbox, superblock, tokens |
+| GET    | `/v1/instances/:id`             | cross-chain session and its derived decision              |
+| GET    | `/v1/superblocks/:number`       | per-chain state transitions and dispute game              |
+| GET    | `/v1/mailbox/:chain`            | inbox/outbox roots and message log                        |
+| GET    | `/v1/rollups/:chain`            | counterparty stats and recent XTs                         |
+| GET    | `/v1/stats`                     | network totals, 24h window, commit rate, route volumes    |
+| GET    | `/v1/analytics/activity`        | zero-filled activity time series (`window`, `interval`)   |
+| GET    | `/v1/analytics/routes`          | per-route transfer counts and ETH volume (`window`)       |
+| GET    | `/v1/analytics/assets`          | top transferred assets with token metadata (`window`)     |
+| GET    | `/v1/analytics/assets/activity` | per-asset time series (`token`, `window`)                 |
+| GET    | `/v1/search`                    | resolve a hash, address, token or superblock number       |
+| GET    | `/v1/network`                   | publisher snapshot, period history, queue-depth series    |
+| WS     | `/v1/stream`                    | live feed of new XTs and superblock changes               |
 
 ## Running locally
 
@@ -158,10 +164,11 @@ bun run gen:types           # regenerate the TS bindings from the Rust DTOs (ts-
 - Every raw event is keyed by `(chain_id, block_hash, log_index)`, and every
   canonical write is an upsert, so replays and overlapping backfills stay safe.
 - State is anchored by block hash. Flashblock pre-confirmations stay `unsafe`
-  until their sealing block confirms; after a reorg, `Db::rollback_unsafe` drops
-  the unsafe events above the last common ancestor. A pre-confirmation that
-  never seals within `STALL_TIMEOUT_SECONDS` is rolled back - the observable
-  form of a 2PC abort.
+  until their sealing block confirms. After a reorg, `Db::rollback_above` drops
+  every log-keyed row above the last common ancestor and the poller re-scans
+  the replaced range on the new branch. A pre-confirmation that never seals
+  within `STALL_TIMEOUT_SECONDS` is rolled back - the observable form of a
+  2PC abort.
 - The Rust DTOs in `crates/types` are the source of truth for the wire types.
   `packages/sdk/src/types.ts` mirrors them; regenerate with `bun run gen:types`.
 

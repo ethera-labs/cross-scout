@@ -2,10 +2,15 @@
 // and under Bun (both provide `fetch` and `WebSocket` globals).
 
 import type {
+  ActivityPoint,
+  AssetVolume,
   Instance,
   MailboxView,
   NetworkStats,
+  NetworkView,
   RollupView,
+  RouteVolume,
+  SearchResponse,
   StreamEvent,
   Superblock,
   XtDetail,
@@ -17,6 +22,19 @@ export interface ListXtsParams {
   chain?: number;
   limit?: number;
   cursor?: string;
+  address?: string;
+  token?: string;
+}
+
+export interface ActivityParams {
+  window?: string;
+  interval?: 'hour' | 'day';
+}
+
+export interface AssetActivityParams {
+  window?: string;
+  interval?: 'hour' | 'day';
+  token?: string;
 }
 
 export class CrossScoutClient {
@@ -68,6 +86,33 @@ export class CrossScoutClient {
 
   getStats(): Promise<NetworkStats> {
     return this.get<NetworkStats>('/v1/stats');
+  }
+
+  getActivity(params: ActivityParams = {}): Promise<ActivityPoint[]> {
+    return this.get<ActivityPoint[]>('/v1/analytics/activity', params as Record<string, unknown>);
+  }
+
+  getRoutes(window?: string): Promise<RouteVolume[]> {
+    return this.get<RouteVolume[]>('/v1/analytics/routes', window ? { window } : undefined);
+  }
+
+  getAssets(window?: string): Promise<AssetVolume[]> {
+    return this.get<AssetVolume[]>('/v1/analytics/assets', window ? { window } : undefined);
+  }
+
+  getAssetActivity(params: AssetActivityParams = {}): Promise<ActivityPoint[]> {
+    return this.get<ActivityPoint[]>(
+      '/v1/analytics/assets/activity',
+      params as Record<string, unknown>,
+    );
+  }
+
+  search(q: string): Promise<SearchResponse> {
+    return this.get<SearchResponse>('/v1/search', { q });
+  }
+
+  getNetwork(): Promise<NetworkView> {
+    return this.get<NetworkView>('/v1/network');
   }
 
   /** Open the live stream. Returns a handle you can `.close()`. */

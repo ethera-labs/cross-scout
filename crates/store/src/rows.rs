@@ -7,7 +7,7 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use cross_scout_types::{
     Decision, Direction, Instance, MailboxMessage, Superblock, SuperblockChain, SuperblockStatus,
-    Xt, XtStatus,
+    TokenMeta, Transfer, Xt, XtStatus,
 };
 
 fn xt_status(s: &str) -> XtStatus {
@@ -46,16 +46,23 @@ fn superblock_status(s: &str) -> SuperblockStatus {
 #[derive(sqlx::FromRow)]
 pub struct XtRow {
     pub xt_hash: Vec<u8>,
-    pub instance_id: Vec<u8>,
     pub src_chain: Option<i32>,
     pub dst_chain: Option<i32>,
     pub chains: Vec<i32>,
     pub sender: Option<Vec<u8>>,
+    pub receiver: Option<Vec<u8>>,
+    pub label: Option<String>,
     pub value_wei: Option<BigDecimal>,
     pub status: String,
     pub stage: i16,
     pub superblock_number: Option<i64>,
+    pub src_tx_hash: Option<Vec<u8>>,
     pub first_seen_at: DateTime<Utc>,
+    pub preconfirmed_at: Option<DateTime<Utc>>,
+    pub included_at: Option<DateTime<Utc>>,
+    pub settled_at: Option<DateTime<Utc>>,
+    pub finalized_at: Option<DateTime<Utc>>,
+    pub failed_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -63,16 +70,23 @@ impl XtRow {
     pub fn into_dto(self) -> Xt {
         Xt {
             xt_hash: hex_prefixed(&self.xt_hash),
-            instance_id: hex_prefixed(&self.instance_id),
             src_chain: self.src_chain,
             dst_chain: self.dst_chain,
             chains: self.chains,
             sender: opt_hex(&self.sender),
+            receiver: opt_hex(&self.receiver),
+            label: self.label,
             value_wei: self.value_wei.as_ref().map(decimal_string),
             status: xt_status(&self.status),
             stage: self.stage.clamp(0, 255) as u8,
             superblock_number: self.superblock_number,
+            src_tx_hash: opt_hex(&self.src_tx_hash),
             first_seen_at: rfc3339(&self.first_seen_at),
+            preconfirmed_at: opt_rfc3339(&self.preconfirmed_at),
+            included_at: opt_rfc3339(&self.included_at),
+            settled_at: opt_rfc3339(&self.settled_at),
+            finalized_at: opt_rfc3339(&self.finalized_at),
+            failed_at: opt_rfc3339(&self.failed_at),
             updated_at: rfc3339(&self.updated_at),
         }
     }
@@ -80,7 +94,7 @@ impl XtRow {
 
 #[derive(sqlx::FromRow)]
 pub struct InstanceRow {
-    pub instance_id: Vec<u8>,
+    pub session: Vec<u8>,
     pub xt_hash: Option<Vec<u8>>,
     pub participants: Vec<i32>,
     pub decision: String,
@@ -91,7 +105,7 @@ pub struct InstanceRow {
 impl InstanceRow {
     pub fn into_dto(self) -> Instance {
         Instance {
-            instance_id: hex_prefixed(&self.instance_id),
+            session: hex_prefixed(&self.session),
             xt_hash: opt_hex(&self.xt_hash),
             participants: self.participants,
             decision: decision(&self.decision),
@@ -116,6 +130,7 @@ pub struct MailboxRow {
     pub chain_id: i32,
     pub block_hash: Vec<u8>,
     pub log_index: i32,
+    pub tx_hash: Option<Vec<u8>>,
     pub ts: DateTime<Utc>,
 }
 
@@ -135,7 +150,68 @@ impl MailboxRow {
             chain_id: self.chain_id,
             block_hash: hex_prefixed(&self.block_hash),
             log_index: self.log_index,
+            tx_hash: opt_hex(&self.tx_hash),
             ts: rfc3339(&self.ts),
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct TransferRow {
+    pub id: i64,
+    pub session: Vec<u8>,
+    pub kind: String,
+    pub token: Option<Vec<u8>>,
+    pub amount: BigDecimal,
+    pub src_chain: i32,
+    pub dst_chain: i32,
+    pub sender: Vec<u8>,
+    pub receiver: Vec<u8>,
+    pub message_id: Option<Vec<u8>>,
+    pub chain_id: i32,
+    pub tx_hash: Option<Vec<u8>>,
+    pub safe: bool,
+    pub ts: DateTime<Utc>,
+}
+
+impl TransferRow {
+    pub fn into_dto(self) -> Transfer {
+        Transfer {
+            id: self.id,
+            session: hex_prefixed(&self.session),
+            kind: self.kind,
+            token: opt_hex(&self.token),
+            amount: decimal_string(&self.amount),
+            src_chain: self.src_chain,
+            dst_chain: self.dst_chain,
+            sender: hex_prefixed(&self.sender),
+            receiver: hex_prefixed(&self.receiver),
+            message_id: opt_hex(&self.message_id),
+            chain_id: self.chain_id,
+            tx_hash: opt_hex(&self.tx_hash),
+            safe: self.safe,
+            ts: rfc3339(&self.ts),
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct TokenRow {
+    pub chain_id: i32,
+    pub address: Vec<u8>,
+    pub symbol: Option<String>,
+    pub name: Option<String>,
+    pub decimals: Option<i32>,
+}
+
+impl TokenRow {
+    pub fn into_dto(self) -> TokenMeta {
+        TokenMeta {
+            chain_id: self.chain_id,
+            address: hex_prefixed(&self.address),
+            symbol: self.symbol,
+            name: self.name,
+            decimals: self.decimals,
         }
     }
 }
@@ -170,6 +246,7 @@ pub struct SuperblockRow {
     pub parent_hash: Option<Vec<u8>>,
     pub status: String,
     pub root_claim: Option<Vec<u8>>,
+    pub game_address: Option<Vec<u8>>,
     pub xt_count: i32,
     pub prove_ms: Option<i32>,
     pub l1_tx: Option<Vec<u8>>,
@@ -187,6 +264,7 @@ impl SuperblockRow {
             parent_hash: opt_hex(&self.parent_hash),
             status: superblock_status(&self.status),
             root_claim: opt_hex(&self.root_claim),
+            game_address: opt_hex(&self.game_address),
             xt_count: self.xt_count,
             prove_ms: self.prove_ms,
             l1_tx: opt_hex(&self.l1_tx),

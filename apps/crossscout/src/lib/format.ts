@@ -48,18 +48,6 @@ export function statusColor(status: XtStatus): { fg: string; bg: string } {
   }
 }
 
-export function formatWei(wei: string | null | undefined): string {
-  if (!wei) return '0';
-  try {
-    const eth = Number(BigInt(wei)) / 1e18;
-    if (eth === 0) return '0';
-    if (eth < 0.0001) return `${eth.toExponential(2)} ETH`;
-    return `${eth.toFixed(4)} ETH`;
-  } catch {
-    return wei;
-  }
-}
-
 export function timeAgo(iso: string): string {
   const then = new Date(iso).getTime();
   const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
@@ -80,9 +68,7 @@ export function fmtMaybe(n: number | null | undefined): string {
 }
 
 export function formatEthCompact(wei: string | null | undefined): string {
-  if (!wei) return '0 ETH';
-  const eth = formatWei(wei);
-  return eth.endsWith('ETH') ? eth : `${eth} wei`;
+  return formatTokenAmount(wei, 18, 'ETH');
 }
 
 /** Wall-clock HH:MM:SS for an RFC-3339 timestamp. */
@@ -105,6 +91,60 @@ export function formatDurationMs(ms: number | null | undefined): string {
   const minutes = Math.floor(secs / 60);
   const rem = secs % 60;
   return minutes > 0 ? `${minutes}m ${String(rem).padStart(2, '0')}s` : `${secs}s`;
+}
+
+const compactFormatter = new Intl.NumberFormat('en-US', {
+  notation: 'compact',
+  maximumFractionDigits: 2,
+});
+
+export function compactNumber(n: number): string {
+  return compactFormatter.format(n);
+}
+
+/**
+ * Format a raw base-unit amount with its token decimals. Falls back to the
+ * raw integer string when decimals are unknown (metadata not resolved yet).
+ */
+export function formatTokenAmount(
+  amount: string | null | undefined,
+  decimals: number | null | undefined,
+  symbol?: string | null,
+): string {
+  const suffix = symbol ? ` ${symbol}` : '';
+  if (!amount) return `0${suffix}`;
+  if (decimals == null) return `${amount}${suffix}`;
+  const value = baseUnitsToNumber(amount, decimals);
+  if (value === 0) return `0${suffix}`;
+  if (value < 0.0001) return `${value.toExponential(2)}${suffix}`;
+  if (value < 1) return `${Number(value.toFixed(6))}${suffix}`;
+  return `${compactNumber(value)}${suffix}`;
+}
+
+/** Wei → ETH as a plain number, for chart scales and share math. */
+export function weiToEth(wei: string | null | undefined): number {
+  return baseUnitsToNumber(wei, 18);
+}
+
+/**
+ * Raw base-unit string → value scaled by `decimals`, for chart geometry.
+ * Splits in bigint space first so 18-decimal amounts beyond 2^53 keep their
+ * magnitude instead of saturating.
+ */
+export function baseUnitsToNumber(
+  amount: string | null | undefined,
+  decimals: number | null | undefined,
+): number {
+  if (!amount) return 0;
+  try {
+    const raw = BigInt(amount);
+    const scale = decimals ?? 0;
+    if (scale <= 0) return Number(raw);
+    const base = 10n ** BigInt(scale);
+    return Number(raw / base) + Number(raw % base) / Number(base);
+  } catch {
+    return 0;
+  }
 }
 
 /** Sum decimal wei strings, skipping malformed values from partial rows. */

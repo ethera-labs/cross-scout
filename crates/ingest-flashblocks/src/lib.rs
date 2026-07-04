@@ -55,11 +55,15 @@ struct FrameMetadata {
     block_number: u64,
 }
 
-/// A bridge call decoded out of a raw transaction.
+/// A bridge call decoded out of a raw transaction. `asset = None` is a native
+/// ETH bridge; `Some` an ERC-20/CET whose `amount` is token base units. The
+/// on-chain `messageId` is not in the calldata, so pre-confs carry none.
 struct BridgeCall {
     session_id: U256,
     dst_chain: U256,
-    value: U256,
+    receiver: Address,
+    asset: Option<Address>,
+    amount: U256,
 }
 
 fn decode_bridge_call(input: &[u8], tx_value: U256) -> Option<BridgeCall> {
@@ -70,7 +74,9 @@ fn decode_bridge_call(input: &[u8], tx_value: U256) -> Option<BridgeCall> {
             Some(BridgeCall {
                 session_id: c.sessionId,
                 dst_chain: c.chainDest,
-                value: tx_value,
+                receiver: c.receiver,
+                asset: None,
+                amount: tx_value,
             })
         }
         IComposeL2ToL2Bridge::bridgeERC20ToCall::SELECTOR => {
@@ -78,7 +84,9 @@ fn decode_bridge_call(input: &[u8], tx_value: U256) -> Option<BridgeCall> {
             Some(BridgeCall {
                 session_id: c.sessionId,
                 dst_chain: c.chainDest,
-                value: c.amount,
+                receiver: c.receiver,
+                asset: Some(c.tokenSrc),
+                amount: c.amount,
             })
         }
         IComposeL2ToL2Bridge::bridgeCETToCall::SELECTOR => {
@@ -86,7 +94,9 @@ fn decode_bridge_call(input: &[u8], tx_value: U256) -> Option<BridgeCall> {
             Some(BridgeCall {
                 session_id: c.sessionId,
                 dst_chain: c.chainDest,
-                value: c.amount,
+                receiver: c.receiver,
+                asset: Some(c.cetTokenSrc),
+                amount: c.amount,
             })
         }
         _ => None,
@@ -130,7 +140,10 @@ fn frame_to_events(chain_id: i32, bridges: &[Address], fb: &FlashblockFrame) -> 
                 src_chain: chain_id,
                 dst_chain: cross_scout_ingest_el::chain_i32(call.dst_chain),
                 sender,
-                value_wei: call.value,
+                receiver: call.receiver,
+                asset: call.asset,
+                amount: call.amount,
+                message_id: None,
             },
         ));
     }
@@ -208,7 +221,10 @@ mod tests {
         let decoded = decode_bridge_call(&input, U256::from(1_000_000u64)).expect("decodes");
         assert_eq!(decoded.session_id, U256::from(42));
         assert_eq!(decoded.dst_chain, U256::from(4200));
-        assert_eq!(decoded.value, U256::from(1_000_000u64));
+        assert_eq!(decoded.receiver, Address::repeat_byte(0x11));
+        assert_eq!(decoded.asset, None);
+        // Native ETH: amount is the tx value, not a calldata field.
+        assert_eq!(decoded.amount, U256::from(1_000_000u64));
     }
 
     #[test]
@@ -223,7 +239,11 @@ mod tests {
         let input = call.abi_encode();
         let decoded = decode_bridge_call(&input, U256::ZERO).expect("decodes");
         assert_eq!(decoded.session_id, U256::from(7));
-        assert_eq!(decoded.value, U256::from(500u64));
+        assert_eq!(decoded.receiver, Address::repeat_byte(0x33));
+        // ERC-20: token address in `asset`, amount is the calldata amount
+        // (base units), never the tx value.
+        assert_eq!(decoded.asset, Some(Address::repeat_byte(0x22)));
+        assert_eq!(decoded.amount, U256::from(500u64));
     }
 
     #[test]

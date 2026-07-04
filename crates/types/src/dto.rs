@@ -58,27 +58,37 @@ pub enum SuperblockStatus {
 #[serde(rename_all = "camelCase")]
 pub struct Xt {
     pub xt_hash: String,
-    pub instance_id: String,
     pub src_chain: Option<i32>,
     pub dst_chain: Option<i32>,
     pub chains: Vec<i32>,
     pub sender: Option<String>,
-    /// Decimal string (wei can exceed 2^53).
+    pub receiver: Option<String>,
+    pub label: Option<String>,
+    /// Native-ETH value in wei, decimal string (wei can exceed 2^53). Token
+    /// transfers never populate this - their amounts live on `Transfer`.
     pub value_wei: Option<String>,
     pub status: XtStatus,
     /// Lifecycle stage, 1..=9 or the terminal 255.
     pub stage: u8,
     pub superblock_number: Option<i64>,
+    /// Originating bridge call on the source rollup.
+    pub src_tx_hash: Option<String>,
     pub first_seen_at: String,
+    pub preconfirmed_at: Option<String>,
+    pub included_at: Option<String>,
+    pub settled_at: Option<String>,
+    pub finalized_at: Option<String>,
+    pub failed_at: Option<String>,
     pub updated_at: String,
 }
 
-/// A cross-chain session and its derived decision.
+/// A cross-chain session and its derived decision, keyed by the mailbox
+/// session id (the only cross-chain identity observable on-chain).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
 #[serde(rename_all = "camelCase")]
 pub struct Instance {
-    pub instance_id: String,
+    pub session: String,
     pub xt_hash: Option<String>,
     pub participants: Vec<i32>,
     pub decision: Decision,
@@ -104,6 +114,7 @@ pub struct MailboxMessage {
     pub chain_id: i32,
     pub block_hash: String,
     pub log_index: i32,
+    pub tx_hash: Option<String>,
     pub ts: String,
 }
 
@@ -131,6 +142,8 @@ pub struct Superblock {
     pub status: SuperblockStatus,
     /// Super-root claim the settlement dispute game was created with.
     pub root_claim: Option<String>,
+    /// The dispute game proxy the factory created for this superblock.
+    pub game_address: Option<String>,
     pub xt_count: i32,
     pub prove_ms: Option<i32>,
     pub l1_tx: Option<String>,
@@ -150,6 +163,9 @@ pub struct XtDetail {
     pub instance: Option<Instance>,
     pub mailbox: Vec<MailboxMessage>,
     pub superblock: Option<Superblock>,
+    pub transfers: Vec<Transfer>,
+    /// Metadata for every token referenced by `transfers`.
+    pub tokens: Vec<TokenMeta>,
 }
 
 /// Volume between an ordered rollup pair, for the Sankey view.
@@ -161,6 +177,7 @@ pub struct RouteVolume {
     pub dst_chain: i32,
     pub count: i64,
     pub value_wei: String,
+    pub transfers: i64,
 }
 
 /// Network-wide totals for `GET /v1/stats`.
@@ -178,6 +195,11 @@ pub struct NetworkStats {
     pub superblocks: i64,
     pub avg_prove_ms: Option<f64>,
     pub routes: Vec<RouteVolume>,
+    pub window24h: StatsWindow,
+    /// Fraction of decided instances that committed, over all time. `None`
+    /// until at least one instance has reached a decision.
+    pub commit_rate: Option<f64>,
+    pub last_finalized_superblock: Option<i64>,
 }
 
 /// A page of XTs.
@@ -187,6 +209,110 @@ pub struct NetworkStats {
 pub struct XtPage {
     pub items: Vec<Xt>,
     pub next_cursor: Option<String>,
+}
+
+/// A source-leg asset transfer (one `ETHBridged` / `TokensSendQueued`),
+/// observed on the source rollup only so it counts once network-wide.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct Transfer {
+    pub id: i64,
+    pub session: String,
+    /// `eth` for native transfers, `erc20` for token transfers.
+    pub kind: String,
+    /// Token address for `erc20`, absent for native ETH.
+    pub token: Option<String>,
+    /// Raw base-unit amount (token decimals in `TokenMeta`), decimal string.
+    pub amount: String,
+    pub src_chain: i32,
+    pub dst_chain: i32,
+    pub sender: String,
+    pub receiver: String,
+    pub message_id: Option<String>,
+    pub chain_id: i32,
+    pub tx_hash: Option<String>,
+    /// `false` while only a flashblock pre-confirmation has been seen.
+    pub safe: bool,
+    pub ts: String,
+}
+
+/// Resolved (or pending) ERC-20 metadata for a token seen in a transfer.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct TokenMeta {
+    pub chain_id: i32,
+    pub address: String,
+    pub symbol: Option<String>,
+    pub name: Option<String>,
+    pub decimals: Option<i32>,
+}
+
+/// Aggregate counts over a rolling time window.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct StatsWindow {
+    pub xts: i64,
+    pub transfers: i64,
+    /// Native-ETH volume over the window, wei, decimal string.
+    pub volume_wei: String,
+    pub messages: i64,
+}
+
+/// One time-bucketed activity point for the overview timeseries.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityPoint {
+    /// Bucket start, RFC-3339.
+    pub bucket: String,
+    pub count: i64,
+    /// Native-ETH volume in the bucket, wei, decimal string.
+    pub volume_wei: String,
+    pub transfers: i64,
+}
+
+/// Transfer volume for one asset, aggregated across the chains it moved on.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct AssetVolume {
+    /// Absent for native ETH.
+    pub token: Option<TokenMeta>,
+    pub transfers: i64,
+    /// Summed raw base-unit amount, decimal string.
+    pub amount: String,
+    pub chains: Vec<i32>,
+}
+
+/// One sampled point of the publisher's coordinator liveness series.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct PublisherSnapshot {
+    pub ts: String,
+    pub period_id: i64,
+    pub next_superblock: i64,
+    pub last_finalized: i64,
+    pub queued: i32,
+    pub active_xts: i32,
+    pub active_chains: i32,
+    pub connections: i32,
+    pub registered_chains: i32,
+    pub pending_proofs: i32,
+}
+
+/// An observed SBCP period and when it was first/last seen.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct PeriodInfo {
+    pub period_id: i64,
+    pub superblock_number: Option<i64>,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
 }
 
 /// Events pushed over `WS /v1/stream`. Serialized internally-tagged so the TS

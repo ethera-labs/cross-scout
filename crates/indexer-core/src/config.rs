@@ -7,6 +7,11 @@ fn var(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+/// A set, non-empty env var, else `None`.
+fn opt_var(key: &str) -> Option<String> {
+    env::var(key).ok().filter(|v| !v.trim().is_empty())
+}
+
 fn parse<T: std::str::FromStr>(key: &str, default: T) -> T {
     env::var(key)
         .ok()
@@ -84,6 +89,9 @@ pub struct Config {
     pub flashblocks_ws_urls: Vec<ChainEndpoint>,
     /// L1 settlement RPC.
     pub l1_rpc_url: String,
+    /// Publisher (coordinator) base URL. When set, its `/stats` endpoint is
+    /// polled for period + liveness telemetry; unset disables that poller.
+    pub publisher_url: Option<String>,
 
     /// `UniversalBridgeMailbox`, deployed at the same address on every rollup.
     pub mailbox_address: Address,
@@ -121,6 +129,7 @@ impl Config {
             el_rpc_urls: endpoint_list("EL_RPC_URLS"),
             flashblocks_ws_urls: endpoint_list("FLASHBLOCKS_WS_URLS"),
             l1_rpc_url: var("L1_RPC_URL", "http://localhost:8546"),
+            publisher_url: opt_var("PUBLISHER_URL"),
             mailbox_address: addr("MAILBOX_ADDRESS"),
             bridge_addresses: addr_list("BRIDGE_ADDRESSES"),
             dispute_game_factory: addr("DISPUTE_GAME_FACTORY_ADDRESS"),

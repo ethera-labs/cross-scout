@@ -4,12 +4,17 @@ import type { XtStatus } from "./XtStatus";
 /**
  * One cross-chain transaction, keyed by its mailbox session.
  */
-export type Xt = { xtHash: string, instanceId: string, srcChain: number | null, dstChain: number | null, chains: Array<number>, sender: string | null, 
+export type Xt = { xtHash: string, srcChain: number | null, dstChain: number | null, chains: Array<number>, sender: string | null, receiver: string | null, label: string | null, 
 /**
- * Decimal string (wei can exceed 2^53).
+ * Native-ETH value in wei, decimal string (wei can exceed 2^53). Token
+ * transfers never populate this - their amounts live on `Transfer`.
  */
 valueWei: string | null, status: XtStatus, 
 /**
  * Lifecycle stage, 1..=9 or the terminal 255.
  */
-stage: number, superblockNumber: bigint | null, firstSeenAt: string, updatedAt: string, };
+stage: number, superblockNumber: bigint | null, 
+/**
+ * Originating bridge call on the source rollup.
+ */
+srcTxHash: string | null, firstSeenAt: string, preconfirmedAt: string | null, includedAt: string | null, settledAt: string | null, finalizedAt: string | null, failedAt: string | null, updatedAt: string, };

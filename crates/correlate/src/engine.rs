@@ -2,12 +2,14 @@
 //! session, drives each XT through the lifecycle state machine, and publishes
 //! DTO deltas for the live stream.
 //!
-//! The mailbox session id is the on-chain identity of an XT: `xt_hash` and
-//! `instance_id` are both the bytes32-widened session, so every signal that
-//! carries the session joins to the same row without any off-chain lookup.
+//! The mailbox session id is the on-chain identity of an XT: `xt_hash` is the
+//! bytes32-widened session, and the `instances` row keys on that same session,
+//! so every signal that carries the session joins to the same rows without any
+//! off-chain lookup.
 
 use alloy::primitives::B256;
-use cross_scout_store::repo::MailboxInsert;
+use chrono::{DateTime, Utc};
+use cross_scout_store::repo::{MailboxInsert, TransferInsert};
 use cross_scout_store::{Db, RedisPublisher};
 use cross_scout_types::{DomainEvent, EventKind, StreamEvent, XtStatus};
 use tracing::{debug, warn};
@@ -76,25 +78,104 @@ impl Correlator {
                 src_chain,
                 dst_chain,
                 sender,
-                value_wei,
+                receiver,
+                asset,
+                amount,
+                message_id,
             } => {
-                let inserted = self
-                    .db
-                    .ensure_xt(
-                        session,
-                        session,
-                        Some(*src_chain),
-                        Some(*dst_chain),
-                        &[*src_chain, *dst_chain],
-                        Some(sender),
-                        Some(value_wei),
-                        ts,
-                    )
-                    .await?;
-                self.db
-                    .upsert_instance(session, Some(session), &[*src_chain, *dst_chain], Some(ts))
-                    .await?;
-                self.publish_xt(session, inserted).await?;
+                if meta.safe {
+                    // Sealed source-leg bridge log: this is the authoritative
+                    // record of the transfer. `value_wei` carries native ETH
+                    // only - token amounts stay in `transfers`.
+                    let label = if asset.is_none() {
+                        "eth-transfer"
+                    } else {
+                        "erc20-transfer"
+                    };
+                    let value_wei = asset.is_none().then_some(amount);
+                    let inserted = self
+                        .db
+                        .ensure_xt(
+                            session,
+                            Some(*src_chain),
+                            Some(*dst_chain),
+                            &[*src_chain, *dst_chain],
+                            Some(sender),
+                            Some(receiver),
+                            Some(label),
+                            value_wei,
+                            meta.tx_hash.as_ref(),
+                            ts,
+                        )
+                        .await?;
+                    self.db
+                        .upsert_instance(
+                            session,
+                            Some(session),
+                            &[*src_chain, *dst_chain],
+                            Some(ts),
+                        )
+                        .await?;
+
+                    let kind = if asset.is_none() { "eth" } else { "erc20" };
+                    self.db
+                        .insert_transfer(TransferInsert {
+                            session,
+                            kind,
+                            token: asset.as_ref(),
+                            amount,
+                            src_chain: *src_chain,
+                            dst_chain: *dst_chain,
+                            sender,
+                            receiver,
+                            message_id: message_id.as_ref(),
+                            chain_id: meta.chain_id,
+                            block_number: Some(meta.block_number),
+                            block_hash: &meta.block_hash,
+                            log_index: meta.log_index,
+                            tx_hash: meta.tx_hash.as_ref(),
+                            safe: true,
+                            ts,
+                        })
+                        .await?;
+                    if let Some(asset) = asset {
+                        // The bridge emits the source-chain token address, so
+                        // the resolver must query the emitting chain.
+                        self.db.ensure_token(meta.chain_id, asset).await?;
+                    }
+
+                    self.publish_xt(session, inserted).await?;
+                } else {
+                    // Flashblock pre-confirmation: record only the XT shell and
+                    // stamp the pre-conf time. No transfer row - the sealed log
+                    // (different block coords) is the one that counts, so
+                    // inserting here would double-count once it lands.
+                    let inserted = self
+                        .db
+                        .ensure_xt(
+                            session,
+                            Some(*src_chain),
+                            Some(*dst_chain),
+                            &[*src_chain, *dst_chain],
+                            Some(sender),
+                            Some(receiver),
+                            None,
+                            None,
+                            meta.tx_hash.as_ref(),
+                            ts,
+                        )
+                        .await?;
+                    self.db
+                        .upsert_instance(
+                            session,
+                            Some(session),
+                            &[*src_chain, *dst_chain],
+                            Some(ts),
+                        )
+                        .await?;
+                    self.db.set_preconfirmed_at(session, ts).await?;
+                    self.publish_xt(session, inserted).await?;
+                }
             }
 
             EventKind::MessageDispatched {
@@ -119,11 +200,13 @@ impl Correlator {
                     .db
                     .ensure_xt(
                         session,
-                        session,
                         Some(*src_chain),
                         Some(*dst_chain),
                         &[*src_chain, *dst_chain],
                         Some(sender),
+                        Some(receiver),
+                        Some(label),
+                        None,
                         None,
                         ts,
                     )
@@ -147,8 +230,10 @@ impl Correlator {
                         label: Some(label),
                         xt_hash: Some(session),
                         chain_id: meta.chain_id,
+                        block_number: Some(meta.block_number),
                         block_hash: &meta.block_hash,
                         log_index: meta.log_index,
+                        tx_hash: meta.tx_hash.as_ref(),
                         ts,
                     })
                     .await?;
@@ -162,7 +247,7 @@ impl Correlator {
                 if inserted {
                     self.publish_xt(session, true).await?;
                 }
-                self.advance_xt(session, &ev.kind).await?;
+                self.advance_xt(session, &ev.kind, ts).await?;
             }
 
             // Short-circuited before the raw-event journal above.
@@ -173,6 +258,7 @@ impl Correlator {
                 root_claim,
                 hash,
                 parent_hash,
+                game_address,
                 chains,
                 transitions,
             } => {
@@ -182,6 +268,7 @@ impl Correlator {
                         root_claim,
                         hash,
                         parent_hash,
+                        game_address,
                         meta.tx_hash.as_ref(),
                         meta.block_number,
                         ts,
@@ -201,7 +288,7 @@ impl Correlator {
                 }
                 let affected = self
                     .db
-                    .attach_and_settle_superblock(*number, chains)
+                    .attach_and_settle_superblock(*number, chains, ts)
                     .await?;
                 self.publish_superblock(*number).await?;
                 for xt in &affected {
@@ -212,7 +299,7 @@ impl Correlator {
             EventKind::SuperblockFinalized { number, .. } => {
                 for n in self.db.finalize_superblocks_up_to(*number, ts).await? {
                     self.db
-                        .propagate_superblock_status(n, Stage::Finalized.as_u8(), "finalized")
+                        .propagate_superblock_status(n, Stage::Finalized.as_u8(), "finalized", ts)
                         .await?;
                     self.publish_superblock(n).await?;
                     self.publish_superblock_xts(n).await?;
@@ -236,10 +323,10 @@ impl Correlator {
                 || (number <= prev_number && *hash != prev_hash);
             if reorged {
                 let ancestor = number.saturating_sub(1);
-                let dropped = self.db.rollback_unsealed(chain_id, ancestor).await?;
+                let dropped = self.db.rollback_above(chain_id, ancestor).await?;
                 warn!(
                     chain_id,
-                    ancestor, dropped, "reorg: rolled back unsealed events"
+                    ancestor, dropped, "reorg: rolled back events above ancestor"
                 );
             }
         }
@@ -266,7 +353,12 @@ impl Correlator {
         Ok(())
     }
 
-    async fn advance_xt(&self, xt_hash: &B256, kind: &EventKind) -> CorrelateResult<()> {
+    async fn advance_xt(
+        &self,
+        xt_hash: &B256,
+        kind: &EventKind,
+        ts: DateTime<Utc>,
+    ) -> CorrelateResult<()> {
         let Some(xt) = self.db.get_xt(xt_hash).await? else {
             return Ok(());
         };
@@ -274,7 +366,7 @@ impl Correlator {
         if let Some(next) = next_stage(current, kind) {
             let changed = self
                 .db
-                .advance_xt_stage(xt_hash, next.as_u8(), status_str(next.status()))
+                .advance_xt_stage(xt_hash, next.as_u8(), status_str(next.status()), ts)
                 .await?;
             if changed {
                 debug!(stage = ?next, "xt advanced");

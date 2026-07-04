@@ -1407,6 +1407,8 @@ dependencies = [
  "cross-scout-ingest-settlement",
  "cross-scout-store",
  "cross-scout-types",
+ "reqwest",
+ "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "tracing",

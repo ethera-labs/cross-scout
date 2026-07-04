@@ -47,12 +47,17 @@ pub enum EventKind {
     // ── ingress (bridge call carrying a session) ──────────────────
     /// A cross-chain bridge call was observed - either pre-confirmed in a
     /// flashblock (`meta.safe = false`) or emitted by a sealed bridge log.
+    /// `asset = None` is a native-ETH transfer; `Some` is an ERC-20 whose
+    /// `amount` is denominated in the token's base units, not wei.
     XtRequested {
         session: B256,
         src_chain: i32,
         dst_chain: i32,
         sender: Address,
-        value_wei: U256,
+        receiver: Address,
+        asset: Option<Address>,
+        amount: U256,
+        message_id: Option<B256>,
     },
 
     // ── mailbox (UniversalBridgeMailbox logs + header lookups) ────
@@ -97,6 +102,8 @@ pub enum EventKind {
         /// batch hash the next superblock references as its parent.
         hash: B256,
         parent_hash: B256,
+        /// The dispute game proxy the factory created for this superblock.
+        game_address: Address,
         chains: Vec<i32>,
         transitions: Vec<ChainTransition>,
     },

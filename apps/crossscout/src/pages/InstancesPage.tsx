@@ -16,12 +16,12 @@ export function InstancesPage({
   return (
     <>
       <div className="explorer-titlebar">
-        <h2>Instances</h2>
-        <span className="mono result-count">{xts.length} instances in view</span>
+        <h2>Sessions</h2>
+        <span className="mono result-count">{xts.length} sessions in view</span>
       </div>
       <div className="table-head inst-head dense">
-        <span>Instance</span>
-        <span>XT Hash</span>
+        <span>Session</span>
+        <span>Action</span>
         <span>Chains</span>
         <span>Stage</span>
         <span>Decision</span>
@@ -29,31 +29,35 @@ export function InstancesPage({
         <span>Age</span>
       </div>
       <div className="tx-dense-list">
-        {xts.map((xt) => (
-          <button type="button" className="dense-table-row inst-table-row" key={xt.instanceId} onClick={() => onTx(xt)}>
-            <span className="instance-id">
-              <span style={{ background: statusVar[xt.status], boxShadow: `0 0 7px ${statusVar[xt.status]}` }} />
-              <strong className="mono">{shortHex(xt.instanceId, 8, 5)}</strong>
-            </span>
-            <span className="tx-protocol-cell">
-              <strong className="mono">{shortHex(xt.xtHash, 6, 5)}</strong>
-              <small>{xt.superblockNumber ? `#${xt.superblockNumber}` : 'pending settlement'}</small>
-            </span>
-            <ChainStack ids={xt.chains} chains={chains} />
-            <span className="tx-protocol-cell">
-              <strong>{stageName(xt.stage)}</strong>
-              <small className="mono">stage {xt.stage}</small>
-            </span>
-            <span className={xt.status === 'failed' ? 'decision abort' : 'decision commit'}>
-              {xt.status === 'failed' ? 'ABORT' : 'COMMIT'}
-            </span>
-            <span className="tx-protocol-cell">
-              <strong>{xt.chains.length > 2 ? 'Multi-hop XT' : 'Mailbox XT'}</strong>
-              <small>{formatEthCompact(xt.valueWei)}</small>
-            </span>
-            <span className="mono tx-time right">{timeAgo(xt.updatedAt)}</span>
-          </button>
-        ))}
+        {xts.map((xt) => {
+          const decided = xt.status !== 'pending';
+          const aborted = xt.status === 'failed';
+          return (
+            <button type="button" className="dense-table-row inst-table-row" key={xt.xtHash} onClick={() => onTx(xt)}>
+              <span className="instance-id">
+                <span style={{ background: statusVar[xt.status], boxShadow: `0 0 7px ${statusVar[xt.status]}` }} />
+                <strong className="mono">{shortHex(xt.xtHash, 8, 5)}</strong>
+              </span>
+              <span className="tx-protocol-cell">
+                <strong className="mono">{xt.label ?? 'message'}</strong>
+                <small>{xt.superblockNumber ? `#${xt.superblockNumber}` : 'pending settlement'}</small>
+              </span>
+              <ChainStack ids={xt.chains} chains={chains} />
+              <span className="tx-protocol-cell">
+                <strong>{stageName(xt.stage)}</strong>
+                <small className="mono">stage {xt.stage}</small>
+              </span>
+              <span className={aborted ? 'decision abort' : decided ? 'decision commit' : 'decision'}>
+                {aborted ? 'ABORT' : decided ? 'COMMIT' : 'PENDING'}
+              </span>
+              <span className="tx-protocol-cell">
+                <strong>{xt.chains.length > 2 ? 'Multi-hop XT' : 'Mailbox XT'}</strong>
+                <small>{formatEthCompact(xt.valueWei)}</small>
+              </span>
+              <span className="mono tx-time right">{timeAgo(xt.updatedAt)}</span>
+            </button>
+          );
+        })}
       </div>
     </>
   );

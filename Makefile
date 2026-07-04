@@ -10,7 +10,7 @@ dev: up install ## run indexer + api + explorer together (Ctrl-C stops all)
 	( bun run --cwd apps/crossscout dev ) & \
 	wait
 
-up: ## start postgres + redis + clickhouse
+up: ## start postgres + redis
 	docker compose up -d
 
 down: ## stop datastores

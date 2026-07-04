@@ -183,33 +183,48 @@ impl LogDecoder for ElDecoder {
                 receiver: h.receiver,
                 label: h.label,
             }
-        } else if t0 == IComposeL2ToL2Bridge::ETHBridged::SIGNATURE_HASH {
-            let Ok(e) = IComposeL2ToL2Bridge::ETHBridged::decode_log(&log.inner) else {
-                return Vec::new();
-            };
-            EventKind::XtRequested {
-                session: session_b256(e.sessionId),
-                src_chain: self.chain_id,
-                dst_chain: chain_i32(e.chainDest),
-                sender: e.sender,
-                value_wei: e.amount,
-            }
-        } else if t0 == IComposeL2ToL2Bridge::TokensSendQueued::SIGNATURE_HASH {
-            let Ok(e) = IComposeL2ToL2Bridge::TokensSendQueued::decode_log(&log.inner) else {
-                return Vec::new();
-            };
-            EventKind::XtRequested {
-                session: session_b256(e.sessionId),
-                src_chain: self.chain_id,
-                dst_chain: chain_i32(e.chainDest),
-                sender: e.sender,
-                value_wei: e.amount,
-            }
+        } else if let Some(kind) = decode_bridge_log(self.chain_id, log) {
+            kind
         } else {
             return Vec::new();
         };
 
         vec![DomainEvent::new(meta_of(self.chain_id, log, true), kind)]
+    }
+}
+
+/// Decode a `ComposeL2ToL2Bridge` source-leg log into an [`EventKind`],
+/// carrying the full transfer detail (receiver, asset, amount, message id).
+/// `asset = None` marks native ETH; `Some` an ERC-20 (amount in base units).
+/// Returns `None` for any non-bridge log.
+pub fn decode_bridge_log(chain_id: i32, log: &Log) -> Option<EventKind> {
+    let t0 = topic0(log)?;
+    if t0 == IComposeL2ToL2Bridge::ETHBridged::SIGNATURE_HASH {
+        let e = IComposeL2ToL2Bridge::ETHBridged::decode_log(&log.inner).ok()?;
+        Some(EventKind::XtRequested {
+            session: session_b256(e.sessionId),
+            src_chain: chain_id,
+            dst_chain: chain_i32(e.chainDest),
+            sender: e.sender,
+            receiver: e.receiver,
+            asset: None,
+            amount: e.amount,
+            message_id: Some(e.messageId),
+        })
+    } else if t0 == IComposeL2ToL2Bridge::TokensSendQueued::SIGNATURE_HASH {
+        let e = IComposeL2ToL2Bridge::TokensSendQueued::decode_log(&log.inner).ok()?;
+        Some(EventKind::XtRequested {
+            session: session_b256(e.sessionId),
+            src_chain: chain_id,
+            dst_chain: chain_i32(e.chainDest),
+            sender: e.sender,
+            receiver: e.receiver,
+            asset: Some(e.remoteAsset),
+            amount: e.amount,
+            message_id: Some(e.messageId),
+        })
+    } else {
+        None
     }
 }
 
@@ -256,5 +271,95 @@ impl Source for ElSource {
 
     async fn run(self: Box<Self>, sink: EventSink) -> Result<(), SourceError> {
         poll_logs(self.cfg, sink, self.decoder).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn log_of<E: SolEvent>(event: &E) -> Log {
+        Log {
+            inner: alloy::primitives::Log {
+                address: Address::ZERO,
+                data: event.encode_log_data(),
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn decodes_eth_bridged_into_native_transfer() {
+        let ev = IComposeL2ToL2Bridge::ETHBridged {
+            chainDest: U256::from(4200u64),
+            sender: Address::repeat_byte(0x11),
+            receiver: Address::repeat_byte(0x22),
+            amount: U256::from(1_000u64),
+            sessionId: U256::from(7u64),
+            messageId: B256::repeat_byte(0x33),
+        };
+
+        let kind = decode_bridge_log(4100, &log_of(&ev)).expect("decodes");
+        let EventKind::XtRequested {
+            session,
+            src_chain,
+            dst_chain,
+            sender,
+            receiver,
+            asset,
+            amount,
+            message_id,
+        } = kind
+        else {
+            panic!("wrong kind");
+        };
+        assert_eq!(session, B256::from(U256::from(7u64)));
+        assert_eq!(src_chain, 4100);
+        assert_eq!(dst_chain, 4200);
+        assert_eq!(sender, Address::repeat_byte(0x11));
+        assert_eq!(receiver, Address::repeat_byte(0x22));
+        assert_eq!(asset, None);
+        assert_eq!(amount, U256::from(1_000u64));
+        assert_eq!(message_id, Some(B256::repeat_byte(0x33)));
+    }
+
+    #[test]
+    fn decodes_tokens_send_queued_into_erc20_transfer() {
+        let ev = IComposeL2ToL2Bridge::TokensSendQueued {
+            chainDest: U256::from(4200u64),
+            sender: Address::repeat_byte(0xaa),
+            receiver: Address::repeat_byte(0xbb),
+            remoteAsset: Address::repeat_byte(0xcc),
+            amount: U256::from(500u64),
+            sessionId: U256::from(9u64),
+            messageId: B256::repeat_byte(0xdd),
+        };
+
+        let kind = decode_bridge_log(4100, &log_of(&ev)).expect("decodes");
+        let EventKind::XtRequested {
+            asset,
+            amount,
+            receiver,
+            message_id,
+            ..
+        } = kind
+        else {
+            panic!("wrong kind");
+        };
+        // The token address rides in `asset`; the amount is base units, never
+        // conflated with native wei.
+        assert_eq!(asset, Some(Address::repeat_byte(0xcc)));
+        assert_eq!(amount, U256::from(500u64));
+        assert_eq!(receiver, Address::repeat_byte(0xbb));
+        assert_eq!(message_id, Some(B256::repeat_byte(0xdd)));
+    }
+
+    #[test]
+    fn ignores_non_bridge_logs() {
+        let ev = IUniversalBridgeMailbox::NewOutboxKey {
+            index: U256::from(1u64),
+            key: B256::ZERO,
+        };
+        assert!(decode_bridge_log(4100, &log_of(&ev)).is_none());
     }
 }

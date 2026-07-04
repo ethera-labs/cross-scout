@@ -20,7 +20,7 @@ environments: `.env.localnet` for the local-testnet stack, `.env.stage` for sepo
 indexer and the api both need the env exported into the shell.
 
 ```bash
-make up                     # start postgres + redis + clickhouse (docker compose)
+make up                     # start postgres + redis (docker compose)
 make dev                    # indexer + api + explorer together (also runs `up` + bun install)
 make indexer / api / explorer   # run one process (each sources .env for you)
 
@@ -53,28 +53,28 @@ Data flows **Source → DomainEvent → Correlator → Db (Postgres) + Redis**, 
 
 - **`types`** - leaf crate every other depends on. Holds three distinct things, do not confuse
   the first two:
-  - `event.rs` - `EventKind`/`DomainEvent`: the **internal** normalized events, keep native
-    `alloy` primitives (`B256`, `Address`, `U256`). This is what ingesters emit and the engine
-    consumes.
-  - `dto.rs` - the **wire** types served by the api and exported to TypeScript. Hashes/addresses
-    are `0x`-hex strings, timestamps RFC-3339, chain ids numbers.
-  - `source.rs` - the `Source` trait (one long-running `run(sink)` task per ingester) + the
-    bounded `EventSink` channel.
-  - `lib.rs` - `Stage` (lifecycle 1..=9 + terminal `RolledBack=255`) and its `status()` mapping to
-    `XtStatus`. `Stage` is the single source of truth, re-exported by `correlate`. Stages 2..=5
-    are the publisher's off-chain 2PC phases with no public signal today - live ingestion jumps
-    `Requested → Included`; the variants stay reserved for a future publisher event stream.
+    - `event.rs` - `EventKind`/`DomainEvent`: the **internal** normalized events, keep native
+      `alloy` primitives (`B256`, `Address`, `U256`). This is what ingesters emit and the engine
+      consumes.
+    - `dto.rs` - the **wire** types served by the api and exported to TypeScript. Hashes/addresses
+      are `0x`-hex strings, timestamps RFC-3339, chain ids numbers.
+    - `source.rs` - the `Source` trait (one long-running `run(sink)` task per ingester) + the
+      bounded `EventSink` channel.
+    - `lib.rs` - `Stage` (lifecycle 1..=9 + terminal `RolledBack=255`) and its `status()` mapping to
+      `XtStatus`. `Stage` is the single source of truth, re-exported by `correlate`. Stages 2..=5
+      are the publisher's off-chain 2PC phases with no public signal today - live ingestion jumps
+      `Requested → Included`; the variants stay reserved for a future publisher event stream.
 - **`ingest-*`** - one crate per signal family, each implements `Source`:
-  - `ingest-el` - polls each rollup's `UniversalBridgeMailbox` (`New{Outbox,Inbox}Key` +
-    `messageHeaderList*` view lookups) and `ComposeL2ToL2Bridge` (`ETHBridged` /
-    `TokensSendQueued`) logs, and emits sealed heads. `evm.rs` is the shared chunked log poller
-    (async `LogDecoder` trait) reused by `ingest-settlement`. One `ElSource` per chain in
-    `EL_RPC_URLS`, so both legs of a session are observed.
-  - `ingest-flashblocks` - op-rbuilder websocket pre-confs (`OpFlashblockPayload` JSON frames);
-    decodes raw txs targeting the bridge into `XtRequested` events with `safe = false`.
-  - `ingest-settlement` - L1 `DisputeGameFactory` compose-game creations (superblock payload is
-    ABI-decoded out of the `create()` calldata) + `ComposeAnchorStateRegistry` polling for
-    finalization. Mirrors the publisher's settlement ABI (`crates/coordinator/src/abi.rs` there).
+    - `ingest-el` - polls each rollup's `UniversalBridgeMailbox` (`New{Outbox,Inbox}Key` +
+      `messageHeaderList*` view lookups) and `ComposeL2ToL2Bridge` (`ETHBridged` /
+      `TokensSendQueued`) logs, and emits sealed heads. `evm.rs` is the shared chunked log poller
+      (async `LogDecoder` trait) reused by `ingest-settlement`. One `ElSource` per chain in
+      `EL_RPC_URLS`, so both legs of a session are observed.
+    - `ingest-flashblocks` - op-rbuilder websocket pre-confs (`OpFlashblockPayload` JSON frames);
+      decodes raw txs targeting the bridge into `XtRequested` events with `safe = false`.
+    - `ingest-settlement` - L1 `DisputeGameFactory` compose-game creations (superblock payload is
+      ABI-decoded out of the `create()` calldata) + `ComposeAnchorStateRegistry` polling for
+      finalization. Mirrors the publisher's settlement ABI (`crates/coordinator/src/abi.rs` there).
 - **`correlate`** - `engine.rs` `Correlator::apply()` is the heart: records each event idempotently,
   joins by session, advances the per-XT state machine, publishes stream deltas. `lifecycle.rs`
   `next_stage()` is a **pure transition table** - no I/O. The stall watchdog (`sweep_stalled`)
@@ -96,15 +96,17 @@ Data flows **Source → DomainEvent → Correlator → Db (Postgres) + Redis**, 
 
 ## Cross-cutting invariants (respect these when editing)
 
-- **Session = identity:** the mailbox `sessionId` (widened to bytes32) is both `xt_hash` and
-  `instance_id`. Every real signal carries it (bridge calldata/logs, mailbox headers), so
-  correlation needs no off-chain lookup.
+- **Session = identity:** the mailbox `sessionId` (widened to bytes32) is `xt_hash`, the only
+  cross-chain identity that appears on-chain. Every real signal carries it (bridge calldata/logs,
+  mailbox headers), so correlation needs no off-chain lookup. The publisher's internal instance id
+  never appears in any log - nothing may alias or join on it.
 - **Idempotency & reorgs:** every raw event is keyed by `(chain_id, block_hash, log_index)`;
   `record_raw_event` returning false means duplicate → skip. Stage advances are **monotonic** (the
   store drops backward/`None` transitions). Flashblock pre-confs are `safe=false` until their
-  sealing block confirms; `rollback_unsafe` drops unsafe rows above the last common ancestor on a
-  reorg (detected from sealed-head parent hashes). XTs whose pre-conf never seals within
-  `STALL_TIMEOUT_SECONDS` are rolled back by the watchdog.
+  sealing block confirms. On a reorg (detected from sealed-head parent hashes), `rollback_above`
+  drops every log-keyed row above the common ancestor - sealed or not - and the poller rewinds to
+  re-scan the replaced range, so money aggregates stay single-counted. XTs whose pre-conf never
+  seals within `STALL_TIMEOUT_SECONDS` are rolled back by the watchdog.
 - **Adding a new event kind** touches, in order: `types/event.rs` (variant + `kind_tag` +
   `session` if applicable) → `correlate/lifecycle.rs` (`next_stage` arm) → `correlate/engine.rs`
   (`apply` match arm) → `store/repo.rs` (persistence) → possibly a new migration. Add/extend the

@@ -468,37 +468,54 @@
   }
 
   .flow-card {
-    @apply overflow-hidden rounded-card border border-cs-line bg-cs-bg-1 px-[22px] py-5 shadow-[0_18px_60px_-42px_var(--accent-glow)] transition-[border-color,box-shadow,transform] duration-300;
+    @apply overflow-hidden bg-cs-bg px-0 py-0;
   }
 
   .flow-card:hover {
-    @apply border-cs-line-2 shadow-[0_22px_70px_-42px_var(--accent-glow)];
-    transform: translateY(-1px);
+    transform: none;
   }
 
   .flow-labels {
-    @apply mb-3.5 flex items-center justify-between text-xs font-semibold text-cs-dim;
+    @apply mb-2 grid text-xs font-bold text-cs-dim;
+    grid-template-columns: minmax(246px, 25%) minmax(280px, 1fr) minmax(246px, 25%);
   }
 
   .flow-layout {
     @apply grid gap-0;
-    grid-template-columns: 282px minmax(220px, 1fr) 282px;
+    grid-template-columns: minmax(246px, 25%) minmax(280px, 1fr) minmax(246px, 25%);
   }
 
   .flow-side {
-    @apply flex flex-col gap-2.5;
+    @apply relative min-w-0;
   }
 
   .flow-node {
-    @apply flex h-11 min-w-0 items-center gap-[9px];
+    @apply flex min-w-0 items-center gap-[10px] rounded-none border-0 border-b border-cs-line bg-transparent px-4 text-left transition-colors duration-150;
+  }
+
+  .flow-node:hover,
+  .flow-node.active {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 15%, transparent), transparent 84%);
+  }
+
+  .flow-side.target .flow-node:hover {
+    background: transparent;
+  }
+
+  .flow-side.source {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--bg-2) 86%, transparent), color-mix(in srgb, var(--bg-2) 20%, transparent));
+  }
+
+  .flow-side.target {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--bg-2) 18%, transparent), color-mix(in srgb, var(--bg-2) 86%, transparent));
   }
 
   .flow-node strong {
-    @apply overflow-hidden text-ellipsis whitespace-nowrap text-sm font-bold text-cs-fg;
+    @apply overflow-hidden text-ellipsis whitespace-nowrap text-sm font-extrabold text-cs-fg;
   }
 
   .flow-node .mono {
-    @apply text-[12.5px] text-cs-dim;
+    @apply shrink-0 text-[12.5px] font-semibold text-cs-dim;
   }
 
   .flow-spacer {
@@ -506,15 +523,18 @@
   }
 
   .flow-pct {
-    @apply shrink-0 rounded-full bg-cs-accent-soft px-[7px] py-[3px] text-[10.5px] font-bold text-cs-accent;
+    @apply shrink-0 rounded-full bg-cs-accent-soft px-[8px] py-[3px] font-mono text-[10.5px] font-extrabold text-cs-accent;
   }
 
   .flow-canvas {
-    @apply relative min-w-0;
+    @apply relative min-w-0 overflow-hidden;
+    background:
+      radial-gradient(circle at 36% 15%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 28%),
+      linear-gradient(90deg, color-mix(in srgb, var(--accent) 18%, transparent), color-mix(in srgb, var(--accent-2) 11%, transparent) 58%, transparent);
   }
 
   .flow-watermark {
-    @apply pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[13px] text-cs-fg opacity-20;
+    @apply pointer-events-none absolute left-1/2 top-[24%] -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[13px] font-extrabold text-cs-fg opacity-10;
   }
 
   .flow-path {
@@ -739,7 +759,7 @@
   }
 
   .live-mode {
-    @apply inline-flex items-center gap-2 text-[10px] font-extrabold text-cs-fg;
+    @apply inline-flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-[10px] font-extrabold text-cs-fg;
   }
 
   .live-mode i {
@@ -1579,8 +1599,9 @@
     @apply hidden;
   }
 
+  .flow-labels,
   .flow-layout {
-    grid-template-columns: 230px minmax(160px, 1fr) 230px;
+    grid-template-columns: minmax(210px, 27%) minmax(160px, 1fr) minmax(210px, 27%);
   }
 
   .meta-grid {
@@ -1620,6 +1641,30 @@
   .flow-labels,
   .table-head {
     @apply hidden;
+  }
+
+  .flow-side {
+    @apply flex h-auto flex-col;
+    height: auto !important;
+  }
+
+  .flow-side::before {
+    @apply px-3 pb-2 text-xs font-bold text-cs-dim;
+  }
+
+  .flow-side.source::before {
+    content: "Source";
+  }
+
+  .flow-side.target::before {
+    content: "Target";
+  }
+
+  .flow-node {
+    @apply min-h-[58px];
+    position: relative !important;
+    height: auto !important;
+    inset: auto !important;
   }
 
   .tx-row,

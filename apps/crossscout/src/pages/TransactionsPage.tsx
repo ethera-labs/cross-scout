@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Xt } from '@cross-scout/sdk';
 import { FilterBar } from '../components/primitives';
 import { TxTableRow } from '../components/rows';
@@ -21,31 +21,55 @@ export function TransactionsPage({
   onTx: (xt: Xt) => void;
   live: boolean;
 }) {
+  // Pausing freezes the list on its current snapshot so rows stop reordering
+  // under the cursor; resuming falls back to the live feed.
+  const [paused, setPaused] = useState(false);
+  const frozen = useRef<Xt[]>([]);
+  const toggleLive = () => {
+    setPaused((current) => {
+      if (!current) frozen.current = xts;
+      return !current;
+    });
+  };
+  const visible = paused ? frozen.current : xts;
+
   const counts = useMemo(() => {
     const base: Record<XtFilter, number> = {
-      all: xts.length,
+      all: visible.length,
       pending: 0,
       committed: 0,
       validated: 0,
       finalized: 0,
       failed: 0,
     };
-    xts.forEach((xt) => {
+    visible.forEach((xt) => {
       base[xt.status] += 1;
     });
     return base;
-  }, [xts]);
-  const rows = filter === 'all' ? xts : xts.filter((xt) => xt.status === filter);
+  }, [visible]);
+  const rows = filter === 'all' ? visible : visible.filter((xt) => xt.status === filter);
+
+  const label = paused ? 'PAUSED' : live ? 'LIVE' : 'POLLING';
+  const title = paused
+    ? 'updates paused - click to resume'
+    : live
+      ? 'streaming - click to pause'
+      : 'stream reconnecting, polling every 15s - click to pause';
 
   return (
     <>
       <div className="transactions-titlebar">
         <h2>Transactions</h2>
-        <span className={live ? 'live-mode mono' : 'live-mode off mono'} title={live ? 'stream connected' : 'stream disconnected - polling every 15s'}>
+        <button
+          type="button"
+          className={paused ? 'live-mode off mono' : 'live-mode mono'}
+          onClick={toggleLive}
+          title={title}
+        >
           <i />
-          {live ? 'LIVE' : 'POLLING'}
+          {label}
           <b />
-        </span>
+        </button>
       </div>
       <div className="page-toolbar">
         <div className="tx-toolbar-left">

@@ -8,10 +8,14 @@ COPY apps ./apps
 
 RUN bun install --frozen-lockfile
 
-ARG VITE_API_URL=http://localhost:3001
+# VITE_API_URL empty => the explorer resolves the api origin from its own host
+# at runtime (see src/lib/api.ts). Set it only to pin a fixed api origin.
+ARG VITE_API_URL=
+ARG VITE_API_PORT=3001
 ARG VITE_CHAIN_NAMES=
 
 ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_API_PORT=$VITE_API_PORT
 ENV VITE_CHAIN_NAMES=$VITE_CHAIN_NAMES
 
 RUN bun run --cwd apps/crossscout build

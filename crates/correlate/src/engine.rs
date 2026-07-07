@@ -196,16 +196,24 @@ impl Correlator {
                 label,
                 ..
             } => {
+                // The ACK is the dest→src reply, so its header is inverted
+                // relative to the transfer. `ensure_xt` is first-write-wins:
+                // when the dest chain's poller races ahead of the source
+                // chain's, an ACK-seeded row would pin the wrong direction and
+                // label for good. Only non-ACK messages may seed XT identity;
+                // the ACK still guarantees the row exists and lands in the
+                // mailbox table below with its full (inverted) header.
+                let seeds_identity = label != "ACK";
                 let inserted = self
                     .db
                     .ensure_xt(
                         session,
-                        Some(*src_chain),
-                        Some(*dst_chain),
+                        seeds_identity.then_some(*src_chain),
+                        seeds_identity.then_some(*dst_chain),
                         &[*src_chain, *dst_chain],
-                        Some(sender),
-                        Some(receiver),
-                        Some(label),
+                        seeds_identity.then_some(sender),
+                        seeds_identity.then_some(receiver),
+                        seeds_identity.then_some(label),
                         None,
                         None,
                         ts,

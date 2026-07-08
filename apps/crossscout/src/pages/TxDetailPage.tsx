@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Xt, XtDetail } from '@cross-scout/sdk';
 import { BackButton, DetailMeta, EmptyPanel, Glyph, PanelHeader, StatusPill } from '../components/primitives';
 import { MessageRow } from '../components/rows';
-import { AddTokenButton, TokenLogo } from '../components/TokenAsset';
+import { AddTokenButton, AssetIcon } from '../components/TokenAsset';
 import { Timeline } from '../components/Timeline';
 import { apiBaseUrl } from '../lib/api';
 import type { ChainView } from '../lib/chains';
@@ -243,7 +243,7 @@ export function TxDetailPage({
                   return (
                     <div className="action-row" key={transfer.id}>
                       <span className="action-asset">
-                        <TokenLogo transfer={transfer} tokens={tokens} />
+                        <AssetIcon token={token} native={transfer.kind === 'eth'} />
                         <span>
                           <strong>{tokenSymbol(transfer, tokens)}</strong>
                           <small className="mono">

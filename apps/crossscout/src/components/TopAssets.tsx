@@ -3,9 +3,9 @@ import { formatEther, formatUnits } from 'viem';
 import type { ActivityPoint, AssetVolume } from '@cross-scout/sdk';
 import { api } from '../lib/api';
 import type { ChainView } from '../lib/chains';
-import { chainView } from '../lib/chains';
 import { compactNumber, fmt, formatEthCompact, formatTokenAmount, shortHex } from '../lib/format';
 import { AreaChart } from './AreaChart';
+import { AssetIcon } from './TokenAsset';
 import { ChainStack, EmptyPanel } from './primitives';
 
 function assetKey(asset: AssetVolume): string {
@@ -85,7 +85,6 @@ export function TopAssets({
         {assets.map((asset) => {
           const key = assetKey(asset);
           const isActive = active != null && assetKey(active) === key;
-          const glyphChain = chainView(chains, asset.token?.chainId ?? asset.chains[0] ?? null);
           return (
             <button
               type="button"
@@ -94,20 +93,7 @@ export function TopAssets({
               onClick={() => setSelected(key)}
             >
               <span className="asset-symbol">
-                <span
-                  className="glyph"
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 7,
-                    color: glyphChain.color,
-                    borderColor: glyphChain.color,
-                    background: `${glyphChain.color}20`,
-                    fontSize: 10,
-                  }}
-                >
-                  {assetSymbol(asset).slice(0, 3)}
-                </span>
+                <AssetIcon token={asset.token} native={!asset.token} size={22} />
                 <strong>{assetSymbol(asset)}</strong>
               </span>
               <span className="mono">{assetAmount(asset)}</span>

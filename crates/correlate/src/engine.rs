@@ -1,6 +1,6 @@
 //! The correlation engine: consumes normalized [`DomainEvent`]s, joins them by
-//! session, drives each XT through the lifecycle state machine, and publishes
-//! DTO deltas for the live stream.
+//! session, drives each XT through the lifecycle state machine, and announces
+//! row keys on the live-stream channel.
 //!
 //! The mailbox session id is the on-chain identity of an XT: `xt_hash` is the
 //! bytes32-widened session, and the `instances` row keys on that same session,
@@ -12,8 +12,8 @@ use chrono::{DateTime, Utc};
 use cross_scout_store::write::{
     MailboxInsert, TransferInsert, XtIdentity, XtObservation, XtObservationEffect,
 };
-use cross_scout_store::{Db, RedisPublisher};
-use cross_scout_types::{DomainEvent, EventKind, StreamEvent};
+use cross_scout_store::{Db, StreamKey, StreamNotifier};
+use cross_scout_types::{DomainEvent, EventKind};
 use tracing::{debug, warn};
 
 use crate::error::CorrelateResult;
@@ -24,14 +24,14 @@ use crate::mailbox::xt_identity_from_mailbox;
 #[derive(Clone)]
 pub struct Correlator {
     db: Db,
-    publisher: Option<RedisPublisher>,
+    publisher: Option<StreamNotifier>,
     /// Seconds an XT may sit without a sealed inclusion before the watchdog
     /// rolls it back (a pre-confirmation that never seals = 2PC abort).
     stall_secs: i64,
 }
 
 impl Correlator {
-    pub fn new(db: Db, publisher: Option<RedisPublisher>, stall_secs: i64) -> Self {
+    pub fn new(db: Db, publisher: Option<StreamNotifier>, stall_secs: i64) -> Self {
         Self {
             db,
             publisher,
@@ -372,45 +372,32 @@ impl Correlator {
         Ok(())
     }
 
-    async fn publish(&self, ev: StreamEvent) -> CorrelateResult<()> {
+    async fn publish(&self, key: StreamKey<'_>) -> CorrelateResult<()> {
         if let Some(p) = &self.publisher {
-            p.publish(&ev).await?;
+            p.publish(key).await?;
         }
         Ok(())
     }
 
     async fn publish_xt(&self, xt_hash: &B256, is_new: bool) -> CorrelateResult<()> {
-        if self.publisher.is_none() {
-            return Ok(());
-        }
-        if let Some(xt) = self.db.get_xt(xt_hash).await? {
-            let ev = if is_new {
-                StreamEvent::NewXt { xt }
-            } else {
-                StreamEvent::XtUpdated { xt }
-            };
-            self.publish(ev).await?;
-        }
-        Ok(())
+        let key = if is_new {
+            StreamKey::NewXt(xt_hash)
+        } else {
+            StreamKey::XtUpdated(xt_hash)
+        };
+        self.publish(key).await
     }
 
     async fn publish_superblock(&self, number: i64) -> CorrelateResult<()> {
-        if self.publisher.is_none() {
-            return Ok(());
-        }
-        if let Some(superblock) = self.db.get_superblock(number).await? {
-            self.publish(StreamEvent::SuperblockUpdated { superblock })
-                .await?;
-        }
-        Ok(())
+        self.publish(StreamKey::SuperblockUpdated(number)).await
     }
 
     async fn publish_superblock_xts(&self, number: i64) -> CorrelateResult<()> {
         if self.publisher.is_none() {
             return Ok(());
         }
-        for xt in self.db.xts_by_superblock(number).await? {
-            self.publish(StreamEvent::XtUpdated { xt }).await?;
+        for xt_hash in self.db.xt_hashes_by_superblock(number).await? {
+            self.publish(StreamKey::XtUpdated(&xt_hash)).await?;
         }
         Ok(())
     }

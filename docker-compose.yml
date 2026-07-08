@@ -1,6 +1,6 @@
 # Local development dependencies for the CrossScout indexer.
 # The indexer itself and the api run on the host (cargo run / bun run);
-# this only brings up the datastores.
+# this only brings up the datastore.
 services:
   postgres:
     image: postgres:16-alpine
@@ -18,19 +18,5 @@ services:
       timeout: 3s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "6379:6379"
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
 volumes:
   pgdata:
-  redisdata:

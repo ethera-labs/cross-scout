@@ -26,12 +26,11 @@ WebSocket.
                              correlate  (session join → lifecycle SM
                                          → reorg reconciliation → upsert)
                                       │
-                    ┌─────────────────┤
-                    ▼                 ▼
-                Postgres            Redis
-              canonical store    live pub/sub
-                    │                 │
-                    ▼                 ▼
+                                      ▼
+                                  Postgres
+                     canonical store · NOTIFY live stream
+                                      │
+                                      ▼
               CrossScout · Bun + TS (Hono REST + WebSocket, serves the
                             built React explorer from the same port)
 ```
@@ -91,9 +90,10 @@ cross-scout/
    `Correlator` records each event idempotently (`raw_events` keyed by
    `(chain_id, block_hash, log_index)`), joins by session, advances the per-XT
    state machine, handles aborts and reorgs, and upserts the canonical rows.
-3. Serve. The Bun api reads Postgres for REST and subscribes to the Redis channel
-   to push deltas over `WS /v1/stream`. It also serves the built React explorer
-   from the same port, which consumes both through `@cross-scout/sdk`.
+3. Serve. The Bun api reads Postgres for REST and listens on its NOTIFY channel
+   for row keys, rehydrating each into a DTO pushed over `WS /v1/stream`. It also
+   serves the built React explorer from the same port, which consumes both
+   through `@cross-scout/sdk`.
 
 ## Endpoints
 
@@ -121,8 +121,8 @@ cross-scout/
 Requires Rust ≥ 1.89 and Bun ≥ 1.3.
 
 ```bash
-# datastores
-docker compose up -d postgres redis
+# datastore
+docker compose up -d postgres
 
 # configuration - pick a preset:
 cp .env.localnet .env     # against the local-testnet L2 stack

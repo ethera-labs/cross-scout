@@ -16,7 +16,6 @@ create table if not exists raw_events (
   log_index    int    not null,
   tx_hash      bytea,
   kind         text   not null,
-  payload      jsonb  not null,
   safe         bool   not null default true,
   observed_at  timestamptz not null default now(),
   primary key (chain_id, block_hash, log_index)

@@ -1,19 +1,20 @@
-//! Postgres (canonical) + Redis (live fan-out) persistence for the indexer.
+//! Postgres persistence for the indexer: canonical rows plus the live-stream
+//! fan-out.
 //!
 //! The correlation engine drives everything through [`Db`]: it records each raw
-//! event idempotently, upserts the canonical rows, and publishes the resulting
-//! DTO deltas onto Redis via [`RedisPublisher`] for the api to fan out over
-//! WebSocket.
+//! event idempotently, upserts the canonical rows, and announces each delta as
+//! a compact key on a `NOTIFY` channel via [`StreamNotifier`] for the api to
+//! rehydrate and fan out over WebSocket.
 
 pub mod convert;
 pub mod error;
-pub mod redis;
+pub mod notify;
 pub mod repo;
 pub mod rows;
 pub mod write;
 
 pub use error::{StoreError, StoreResult};
-pub use redis::RedisPublisher;
+pub use notify::{StreamKey, StreamNotifier};
 
 use std::time::Duration;
 

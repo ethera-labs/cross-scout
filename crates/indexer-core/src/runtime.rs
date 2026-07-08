@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use cross_scout_correlate::Correlator;
-use cross_scout_store::{Db, RedisPublisher};
+use cross_scout_store::{Db, StreamNotifier};
 use cross_scout_types::DomainEvent;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -35,16 +35,9 @@ impl Runtime {
         db.migrate().await?;
         info!("migrations applied");
 
-        let publisher = match RedisPublisher::connect(&cfg.redis_url).await {
-            Ok(p) => {
-                info!("redis connected - live stream enabled");
-                Some(p)
-            }
-            Err(e) => {
-                warn!(error = %e, "redis unavailable - live stream disabled");
-                None
-            }
-        };
+        // Stream deltas ride the canonical pool as NOTIFY keys; the api
+        // listens and rehydrates, so no separate broker is involved.
+        let publisher = Some(StreamNotifier::new(db.pool.clone()));
 
         // Background workers write the store directly, so hand them a clone
         // before the correlator takes ownership of the pool.

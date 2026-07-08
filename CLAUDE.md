@@ -20,7 +20,7 @@ environments: `.env.localnet` for the local-testnet stack, `.env.stage` for sepo
 indexer and the api both need the env exported into the shell.
 
 ```bash
-make up                     # start postgres + redis (docker compose)
+make up                     # start postgres (docker compose)
 make dev                    # indexer + api + explorer together (also runs `up` + bun install)
 make indexer / api / explorer   # run one process (each sources .env for you)
 
@@ -52,8 +52,8 @@ or values were copied from; that context rots and leaks internals.
 
 ### The Rust pipeline (crates/)
 
-Data flows **Source → DomainEvent → Correlator → Db (Postgres) + Redis**, all wired by
-`indexer-core`:
+Data flows **Source → DomainEvent → Correlator → Db (Postgres, rows + NOTIFY stream)**, all
+wired by `indexer-core`:
 
 - **`types`** - leaf crate every other depends on. Holds three distinct things, do not confuse
   the first two:
@@ -83,8 +83,9 @@ Data flows **Source → DomainEvent → Correlator → Db (Postgres) + Redis**, 
   joins by session, advances the per-XT state machine, publishes stream deltas. `lifecycle.rs`
   `next_stage()` is a **pure transition table** - no I/O. The stall watchdog (`sweep_stalled`)
   rolls back XTs that never reach a sealed inclusion - the observable form of a 2PC abort.
-- **`store`** - `Db` (sqlx/Postgres) + `RedisPublisher`. All canonical writes are upserts;
-  `repo.rs` holds the SQL, `convert.rs` the hex/rfc3339 helpers, `redis.rs` the fan-out publish.
+- **`store`** - `Db` (sqlx/Postgres) + `StreamNotifier`. All canonical writes are upserts;
+  `repo.rs` holds the SQL, `convert.rs` the hex/rfc3339 helpers, `notify.rs` the key-only
+  `pg_notify` fan-out.
 - **`indexer-core`** - `runtime.rs` connects datastores, runs migrations, spawns every source onto
   one bounded mpsc channel (backpressure), drains it through `Correlator`, runs the stall watchdog.
   `bin/indexer.rs` is the binary (`cross-scout-indexer`).
@@ -92,9 +93,10 @@ Data flows **Source → DomainEvent → Correlator → Db (Postgres) + Redis**, 
 ### The serving layer (apps/, packages/)
 
 - **`apps/api`** (Bun + Hono) reads **Postgres directly** via Bun's SQL client (`db.ts`) for REST -
-  it does *not* call the Rust code. It subscribes to the **Redis** channel and rebroadcasts deltas
-  over `WS /v1/stream` (`stream.ts`). Redis is the only runtime coupling between the Rust indexer
-  and the api; Postgres has two independent readers (the Rust writer + the Bun reader).
+  it does *not* call the Rust code. It `LISTEN`s on the Postgres NOTIFY channel for row keys,
+  rehydrates each into its DTO and broadcasts over `WS /v1/stream` (`stream.ts`, via the
+  `postgres` npm client - Bun's SQL has no LISTEN). Postgres is the only runtime coupling
+  between the Rust indexer and the api.
 - **`apps/crossscout`** - React/Vite explorer, consumes REST + WS through `@cross-scout/sdk`.
 - **`packages/sdk`** - shared TS types + typed api client, imported by both api and explorer.
 

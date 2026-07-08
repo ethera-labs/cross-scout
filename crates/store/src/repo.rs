@@ -17,12 +17,11 @@ impl Db {
     /// have already processed this `(chain_id, block_hash, log_index)` and the
     /// caller should skip it.
     pub async fn record_raw_event(&self, ev: &DomainEvent) -> StoreResult<bool> {
-        let payload = serde_json::to_value(ev)?;
         let tx_hash = ev.meta.tx_hash.as_ref().map(b256_bytes);
         let res = sqlx::query(
             r#"insert into raw_events
-                 (chain_id, block_number, block_hash, log_index, tx_hash, kind, payload, safe)
-               values ($1,$2,$3,$4,$5,$6,$7,$8)
+                 (chain_id, block_number, block_hash, log_index, tx_hash, kind, safe)
+               values ($1,$2,$3,$4,$5,$6,$7)
                on conflict (chain_id, block_hash, log_index) do nothing"#,
         )
         .bind(ev.meta.chain_id)
@@ -31,7 +30,6 @@ impl Db {
         .bind(ev.meta.log_index)
         .bind(tx_hash)
         .bind(ev.kind_tag())
-        .bind(payload)
         .bind(ev.meta.safe)
         .execute(&self.pool)
         .await?;
@@ -511,15 +509,14 @@ impl Db {
         Ok(b256_list(rows))
     }
 
-    /// All XTs settled in a given superblock, as DTOs.
-    pub async fn xts_by_superblock(&self, number: i64) -> StoreResult<Vec<Xt>> {
-        let rows = sqlx::query_as::<_, XtRow>(
-            "select * from xts where superblock_number=$1 order by updated_at desc",
-        )
-        .bind(number)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.into_iter().map(XtRow::into_dto).collect())
+    /// Hashes of every XT settled in a given superblock, for stream fan-out.
+    pub async fn xt_hashes_by_superblock(&self, number: i64) -> StoreResult<Vec<B256>> {
+        let rows: Vec<Vec<u8>> =
+            sqlx::query_scalar("select xt_hash from xts where superblock_number=$1")
+                .bind(number)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(b256_list(rows))
     }
 
     /// Mark every XT settled in a superblock with the superblock's status

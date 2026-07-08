@@ -78,7 +78,6 @@ pub struct Config {
     pub l1_chain_id: i32,
 
     pub database_url: String,
-    pub redis_url: String,
 
     /// Per-rollup execution RPCs (host + counterparties) - mailbox and bridge
     /// logs are polled on every listed chain so both legs of a session are
@@ -125,7 +124,6 @@ impl Config {
                 "DATABASE_URL",
                 "postgres://crossscout:crossscout@localhost:5432/crossscout",
             ),
-            redis_url: var("REDIS_URL", "redis://localhost:6379"),
             el_rpc_urls: endpoint_list("EL_RPC_URLS"),
             flashblocks_ws_urls: endpoint_list("FLASHBLOCKS_WS_URLS"),
             l1_rpc_url: var("L1_RPC_URL", "http://localhost:8546"),

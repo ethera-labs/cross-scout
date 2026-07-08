@@ -10,7 +10,7 @@ dev: up install ## run indexer + api + explorer together (Ctrl-C stops all)
 	( VITE_API_PORT=3001 bun run --cwd apps/crossscout dev ) & \
 	wait
 
-up: ## start postgres + redis
+up: ## start postgres
 	docker compose up -d
 
 down: ## stop datastores

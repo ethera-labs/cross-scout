@@ -10,7 +10,7 @@ export const HOST_CHAIN = Number(process.env.HOST_CHAIN_ID ?? 0);
 const app = new Hono();
 app.use('*', cors());
 
-app.get('/', (c) =>
+app.get('/v1', (c) =>
   c.json({
     name: 'crossscout-api',
     version: '0.1.0',
@@ -18,6 +18,7 @@ app.get('/', (c) =>
     explorer: process.env.EXPLORER_URL ?? null,
     endpoints: [
       'GET /health',
+      'GET /ready',
       'GET /v1/xts',
       'GET /v1/xts/:hash',
       'GET /v1/instances/:id',
@@ -37,7 +38,19 @@ app.get('/', (c) =>
   }),
 );
 
+// liveness: process is up, no datastore touch
 app.get('/health', (c) => c.json({ ok: true, hostChain: HOST_CHAIN }));
+
+// readiness: gates traffic on Postgres actually answering
+app.get('/ready', async (c) => {
+  try {
+    await db.sql`SELECT 1`;
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error('readiness check failed:', err);
+    return c.json({ ok: false }, 503);
+  }
+});
 
 // list cross-chain txns, filtered by status, chain, address, token
 app.get('/v1/xts', async (c) => {

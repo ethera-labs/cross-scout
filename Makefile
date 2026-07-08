@@ -7,7 +7,7 @@ dev: up install ## run indexer + api + explorer together (Ctrl-C stops all)
 	@trap 'kill 0' INT TERM; \
 	( set -a; [ -f .env ] && . ./.env; set +a; cargo run -p cross-scout-indexer-core --bin cross-scout-indexer ) & \
 	( set -a; [ -f .env ] && . ./.env; set +a; bun run --cwd apps/api dev ) & \
-	( bun run --cwd apps/crossscout dev ) & \
+	( VITE_API_PORT=3001 bun run --cwd apps/crossscout dev ) & \
 	wait
 
 up: ## start postgres + redis
@@ -28,7 +28,7 @@ api: ## run the Bun api
 	bun run --cwd apps/api dev
 
 explorer: ## run the React explorer
-	bun run --cwd apps/crossscout dev
+	VITE_API_PORT=3001 bun run --cwd apps/crossscout dev
 
 check: ## cargo check the whole workspace
 	cargo check --workspace --all-targets

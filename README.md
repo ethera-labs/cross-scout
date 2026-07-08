@@ -32,10 +32,8 @@ WebSocket.
               canonical store    live pub/sub
                     │                 │
                     ▼                 ▼
-                     api · Bun + TS (Hono REST + WebSocket)
-                                      │
-                                      ▼
-                          CrossScout · React explorer
+              CrossScout · Bun + TS (Hono REST + WebSocket, serves the
+                            built React explorer from the same port)
 ```
 
 The observable lifecycle is `requested → included → settled → finalized`, plus
@@ -72,7 +70,7 @@ cross-scout/
 │  ├─ ingest-settlement/    # L1 dispute games + anchor registry
 │  └─ indexer-core/         # runtime, source registry, scheduler, binary
 ├─ apps/
-│  ├─ api/                  # Bun + TS, Hono, REST + WebSocket
+│  ├─ api/                  # Bun + TS, Hono, REST + WebSocket, serves the built explorer
 │  └─ crossscout/           # React explorer (Vite)
 ├─ packages/sdk/            # shared TS types + typed api client
 ├─ migrations/              # SQL
@@ -94,13 +92,15 @@ cross-scout/
    `(chain_id, block_hash, log_index)`), joins by session, advances the per-XT
    state machine, handles aborts and reorgs, and upserts the canonical rows.
 3. Serve. The Bun api reads Postgres for REST and subscribes to the Redis channel
-   to push deltas over `WS /v1/stream`. The React explorer consumes both through
-   `@cross-scout/sdk`.
+   to push deltas over `WS /v1/stream`. It also serves the built React explorer
+   from the same port, which consumes both through `@cross-scout/sdk`.
 
 ## Endpoints
 
 | Method | Path                            | Description                                               |
 |--------|---------------------------------|-----------------------------------------------------------|
+| GET    | `/health`                       | liveness - process is up                                  |
+| GET    | `/ready`                        | readiness - Postgres answers                               |
 | GET    | `/v1/xts`                       | list XTs, filter by `status`, `chain`, `address`, `token` |
 | GET    | `/v1/xts/:hash`                 | full XT lifecycle, transfers, mailbox, superblock, tokens |
 | GET    | `/v1/instances/:id`             | cross-chain session and its derived decision              |
@@ -134,13 +134,15 @@ cp .env.example .env
 set -a && source .env && set +a
 cargo run -p cross-scout-indexer-core --bin cross-scout-indexer
 
-# api (new shell)
+# api + explorer (new shell): build the explorer once, then the api serves
+# both from one port
 bun install
+bun run --cwd apps/crossscout build
 set -a && source .env && set +a
 bun run api          # http://localhost:3001
 
-# explorer (new shell)
-bun run explorer     # http://localhost:5173
+# explorer with hot reload instead (new shell, api still required above)
+bun run explorer     # http://localhost:5173, talks to the api on :3001
 ```
 
 Each indexer instance is scoped to one host rollup through `HOST_CHAIN_ID`.

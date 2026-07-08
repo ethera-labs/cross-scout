@@ -7,6 +7,7 @@
 pub mod engine;
 pub mod error;
 pub mod lifecycle;
+mod mailbox;
 
 pub use engine::Correlator;
 pub use error::{CorrelateError, CorrelateResult};

@@ -291,7 +291,11 @@ impl SuperblockRow {
             prove_ms: self.prove_ms,
             l1_tx: opt_hex(&self.l1_tx),
             l1_block: self.l1_block,
-            l1_tx_fee: tx_fee(&self.l1_gas_used, &self.l1_effective_gas_price_wei, &self.l1_fee_wei),
+            l1_tx_fee: tx_fee(
+                &self.l1_gas_used,
+                &self.l1_effective_gas_price_wei,
+                &self.l1_fee_wei,
+            ),
             proposed_at: opt_rfc3339(&self.proposed_at),
             validated_at: opt_rfc3339(&self.validated_at),
             finalized_at: opt_rfc3339(&self.finalized_at),

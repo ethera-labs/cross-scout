@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { formatEther } from 'viem';
 import type { RouteVolume } from '@cross-scout/sdk';
 import type { ChainView } from '../lib/chains';
 import { chainById, chainView } from '../lib/chains';
-import { fmt, weiToEth } from '../lib/format';
+import { fmt } from '../lib/format';
 import { EmptyPanel, Glyph } from './primitives';
 
 export type FlowMode = 'volume' | 'transfers';
@@ -16,7 +17,7 @@ const CTRL_X2 = 580;
 // -- labels ------------------------------------------------------------------
 
 function routeWeight(route: RouteVolume, mode: FlowMode): number {
-  return mode === 'transfers' ? route.transfers : weiToEth(route.valueWei);
+  return mode === 'transfers' ? route.transfers : Number(formatEther(BigInt(route.valueWei)));
 }
 
 function weightLabel(value: number, mode: FlowMode): string {

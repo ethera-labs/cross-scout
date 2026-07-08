@@ -7,7 +7,8 @@
 use std::time::Duration;
 
 use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::B256;
+use alloy::network::ReceiptResponse;
+use alloy::primitives::{B256, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::rpc::types::{Filter, Log};
 use async_trait::async_trait;
@@ -50,9 +51,36 @@ pub fn meta_of(chain_id: i32, log: &Log, safe: bool) -> EventMeta {
         block_hash: log.block_hash.unwrap_or_default(),
         log_index: log.log_index.unwrap_or_default() as i32,
         tx_hash: log.transaction_hash,
+        gas_used: None,
+        effective_gas_price_wei: None,
         timestamp: chrono::Utc::now(),
         safe,
     }
+}
+
+/// Build [`EventMeta`] and attach receipt gas fields when the RPC exposes the
+/// receipt. Missing receipt data does not make the decoded log invalid.
+pub async fn meta_with_receipt(
+    provider: &DynProvider,
+    chain_id: i32,
+    log: &Log,
+    safe: bool,
+) -> EventMeta {
+    let mut meta = meta_of(chain_id, log, safe);
+    let Some(tx_hash) = meta.tx_hash else {
+        return meta;
+    };
+
+    match provider.get_transaction_receipt(tx_hash).await {
+        Ok(Some(receipt)) => {
+            meta.gas_used = Some(U256::from(receipt.gas_used()));
+            meta.effective_gas_price_wei = Some(U256::from(receipt.effective_gas_price()));
+        }
+        Ok(None) => {}
+        Err(e) => warn!(%tx_hash, error = %e, "transaction receipt fetch failed"),
+    }
+
+    meta
 }
 
 /// `topics[0]`, the event signature hash matched against `SolEvent::SIGNATURE_HASH`.
@@ -169,6 +197,8 @@ async fn emit_head(
             block_hash: h.hash,
             log_index: -1,
             tx_hash: None,
+            gas_used: None,
+            effective_gas_price_wei: None,
             timestamp: chrono::Utc::now(),
             safe: true,
         },

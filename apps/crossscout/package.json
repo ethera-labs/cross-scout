@@ -11,9 +11,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@cross-scout/sdk": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@cross-scout/sdk": "workspace:*"
+    "viem": "^2.54.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",

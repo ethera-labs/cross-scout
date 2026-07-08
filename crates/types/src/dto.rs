@@ -52,6 +52,17 @@ pub enum SuperblockStatus {
     Finalized,
 }
 
+/// Execution fee paid by an observed EVM transaction.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct TxFee {
+    pub gas_used: String,
+    pub effective_gas_price_wei: String,
+    pub fee_wei: String,
+    pub fee_usd: Option<String>,
+}
+
 /// One cross-chain transaction, keyed by its mailbox session.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
@@ -67,6 +78,7 @@ pub struct Xt {
     /// Native-ETH value in wei, decimal string (wei can exceed 2^53). Token
     /// transfers never populate this - their amounts live on `Transfer`.
     pub value_wei: Option<String>,
+    pub value_usd: Option<String>,
     pub status: XtStatus,
     /// Lifecycle stage, 1..=9 or the terminal 255.
     pub stage: u8,
@@ -115,6 +127,7 @@ pub struct MailboxMessage {
     pub block_hash: String,
     pub log_index: i32,
     pub tx_hash: Option<String>,
+    pub tx_fee: Option<TxFee>,
     pub ts: String,
 }
 
@@ -148,6 +161,7 @@ pub struct Superblock {
     pub prove_ms: Option<i32>,
     pub l1_tx: Option<String>,
     pub l1_block: Option<i64>,
+    pub l1_tx_fee: Option<TxFee>,
     pub proposed_at: Option<String>,
     pub validated_at: Option<String>,
     pub finalized_at: Option<String>,
@@ -225,6 +239,7 @@ pub struct Transfer {
     pub token: Option<String>,
     /// Raw base-unit amount (token decimals in `TokenMeta`), decimal string.
     pub amount: String,
+    pub amount_usd: Option<String>,
     pub src_chain: i32,
     pub dst_chain: i32,
     pub sender: String,

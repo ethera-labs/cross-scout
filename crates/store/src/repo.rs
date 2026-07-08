@@ -24,6 +24,8 @@ pub struct MailboxInsert<'a> {
     pub block_hash: &'a B256,
     pub log_index: i32,
     pub tx_hash: Option<&'a B256>,
+    pub gas_used: Option<&'a U256>,
+    pub effective_gas_price_wei: Option<&'a U256>,
     pub ts: DateTime<Utc>,
 }
 
@@ -263,8 +265,9 @@ impl Db {
         sqlx::query(
             r#"insert into mailbox_messages
                  (direction, src_chain, dst_chain, session, sender, receiver, label,
-                  xt_hash, chain_id, block_number, block_hash, log_index, tx_hash, ts)
-               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                  xt_hash, chain_id, block_number, block_hash, log_index, tx_hash,
+                  gas_used, effective_gas_price_wei, ts)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
                on conflict (chain_id, block_hash, log_index) do nothing"#,
         )
         .bind(m.direction)
@@ -280,6 +283,8 @@ impl Db {
         .bind(b256_bytes(m.block_hash))
         .bind(m.log_index)
         .bind(m.tx_hash.map(b256_bytes))
+        .bind(m.gas_used.map(u256_decimal))
+        .bind(m.effective_gas_price_wei.map(u256_decimal))
         .bind(m.ts)
         .execute(&self.pool)
         .await?;
@@ -388,14 +393,16 @@ impl Db {
         parent_hash: &B256,
         game_address: &Address,
         l1_tx: Option<&B256>,
+        l1_gas_used: Option<&U256>,
+        l1_effective_gas_price_wei: Option<&U256>,
         l1_block: i64,
         proposed_at: DateTime<Utc>,
     ) -> StoreResult<()> {
         sqlx::query(
             r#"insert into superblocks
                  (number, root_claim, hash, parent_hash, game_address, l1_tx, l1_block,
-                  status, proposed_at)
-               values ($1,$2,$3,$4,$5,$6,$7,'proposed',$8)
+                  l1_gas_used, l1_effective_gas_price_wei, status, proposed_at)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'proposed',$10)
                on conflict (number) do update set
                  root_claim   = excluded.root_claim,
                  hash         = excluded.hash,
@@ -403,6 +410,9 @@ impl Db {
                  game_address = coalesce(superblocks.game_address, excluded.game_address),
                  l1_tx        = coalesce(superblocks.l1_tx, excluded.l1_tx),
                  l1_block     = coalesce(superblocks.l1_block, excluded.l1_block),
+                 l1_gas_used  = coalesce(superblocks.l1_gas_used, excluded.l1_gas_used),
+                 l1_effective_gas_price_wei = coalesce(superblocks.l1_effective_gas_price_wei,
+                                                       excluded.l1_effective_gas_price_wei),
                  proposed_at  = coalesce(superblocks.proposed_at, excluded.proposed_at)"#,
         )
         .bind(number)
@@ -412,6 +422,8 @@ impl Db {
         .bind(address_bytes(game_address))
         .bind(l1_tx.map(b256_bytes))
         .bind(l1_block)
+        .bind(l1_gas_used.map(u256_decimal))
+        .bind(l1_effective_gas_price_wei.map(u256_decimal))
         .bind(proposed_at)
         .execute(&self.pool)
         .await?;

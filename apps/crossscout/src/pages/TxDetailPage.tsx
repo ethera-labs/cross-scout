@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import type { MailboxMessage, TokenMeta, Transfer, Xt, XtDetail } from '@cross-scout/sdk';
+import type { Xt, XtDetail } from '@cross-scout/sdk';
 import { BackButton, DetailMeta, EmptyPanel, Glyph, PanelHeader, StatusPill } from '../components/primitives';
 import { MessageRow } from '../components/rows';
+import { AddTokenButton, AssetIcon } from '../components/TokenAsset';
 import { Timeline } from '../components/Timeline';
 import { apiBaseUrl } from '../lib/api';
 import type { ChainView } from '../lib/chains';
 import { chainSequence, chainView } from '../lib/chains';
-import { clock, formatEthCompact, formatTokenAmount, shortHex, stageName, timeAgo } from '../lib/format';
+import { clock, formatEthCompact, formatFee, shortHex, stageName, timeAgo, withUsd } from '../lib/format';
+import { tokenFor, tokenSymbol, transferAmount } from '../lib/tokens';
 import { Button } from '../ui/Button';
 import { CopyButton } from '../ui/CopyButton';
 
@@ -17,23 +19,6 @@ const tabs: Array<[DetailTab, string]> = [
   ['advanced', 'Advanced'],
   ['progress', 'Progress'],
 ];
-
-function tokenFor(transfer: Transfer, tokens: TokenMeta[]): TokenMeta | null {
-  if (!transfer.token) return null;
-  return (
-    tokens.find(
-      (token) => token.address.toLowerCase() === transfer.token?.toLowerCase() && token.chainId === transfer.chainId,
-    ) ??
-    tokens.find((token) => token.address.toLowerCase() === transfer.token?.toLowerCase()) ??
-    null
-  );
-}
-
-function transferAmount(transfer: Transfer, tokens: TokenMeta[]): string {
-  if (transfer.kind === 'eth') return formatEthCompact(transfer.amount);
-  const meta = tokenFor(transfer, tokens);
-  return formatTokenAmount(transfer.amount, meta?.decimals, meta?.symbol ?? shortHex(transfer.token, 5, 3));
-}
 
 function FieldRow({ label, value, copy }: { label: string; value: string; copy?: string | null }) {
   return (
@@ -151,6 +136,7 @@ export function TxDetailPage({
             {detail.superblock.l1Tx && (
               <FieldRow label="L1 Tx" value={shortHex(detail.superblock.l1Tx, 8, 6)} copy={detail.superblock.l1Tx} />
             )}
+            {detail.superblock.l1TxFee && <FieldRow label="L1 Fee" value={formatFee(detail.superblock.l1TxFee)} />}
             {detail.superblock.chains.map((block) => {
               const chain = chainView(chains, block.chainId);
               return (
@@ -248,12 +234,23 @@ export function TxDetailPage({
                 value={deliveryMsg?.txHash ? shortHex(deliveryMsg.txHash, 10, 8) : 'pending'}
                 copy={deliveryMsg?.txHash}
               />
+              <FieldRow label="Destination Fee" value={formatFee(deliveryMsg?.txFee)} />
               {transfers.length ? (
                 transfers.map((transfer) => {
                   const src = chainView(chains, transfer.srcChain);
                   const dst = chainView(chains, transfer.dstChain);
+                  const token = tokenFor(transfer, tokens);
                   return (
                     <div className="action-row" key={transfer.id}>
+                      <span className="action-asset">
+                        <AssetIcon token={token} native={transfer.kind === 'eth'} />
+                        <span>
+                          <strong>{tokenSymbol(transfer, tokens)}</strong>
+                          <small className="mono">
+                            {transfer.kind === 'eth' ? 'native' : token?.name ?? shortHex(transfer.token, 6, 4)}
+                          </small>
+                        </span>
+                      </span>
                       <span className="mono action-type">{transfer.kind === 'eth' ? 'ETH TRANSFER' : 'TOKEN TRANSFER'}</span>
                       <span className="action-leg">
                         <Glyph chain={src} size={18} />
@@ -268,14 +265,17 @@ export function TxDetailPage({
                         <strong className="mono">{shortHex(transfer.receiver, 6, 4)}</strong>
                         <CopyButton value={transfer.receiver} />
                       </span>
-                      <strong className="action-amount mono">{transferAmount(transfer, tokens)}</strong>
+                      <span className="action-row-actions">
+                        {transfer.kind === 'erc20' && <AddTokenButton token={token} />}
+                        <strong className="action-amount mono">{transferAmount(transfer, tokens)}</strong>
+                      </span>
                     </div>
                   );
                 })
               ) : (
                 <FieldRow label="Action" value={current.label ?? 'mailbox message'} />
               )}
-              {current.valueWei && <FieldRow label="Value" value={formatEthCompact(current.valueWei)} />}
+              {current.valueWei && <FieldRow label="Value" value={withUsd(formatEthCompact(current.valueWei), current.valueUsd)} />}
             </div>
           </section>
           <div className="two-col">

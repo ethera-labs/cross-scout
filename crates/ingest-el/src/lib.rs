@@ -16,7 +16,7 @@ use alloy::sol;
 use alloy::sol_types::SolEvent;
 use async_trait::async_trait;
 use cross_scout_types::{DomainEvent, EventKind, EventSink, Source, SourceError};
-use evm::{meta_of, poll_logs, topic0, LogDecoder, PollConfig};
+use evm::{meta_of, meta_with_receipt, poll_logs, topic0, LogDecoder, PollConfig};
 use tracing::warn;
 
 sol! {
@@ -189,7 +189,14 @@ impl LogDecoder for ElDecoder {
             return Vec::new();
         };
 
-        vec![DomainEvent::new(meta_of(self.chain_id, log, true), kind)]
+        let meta = match &kind {
+            EventKind::MessageDispatched { .. } | EventKind::MessageDelivered { .. } => {
+                meta_with_receipt(provider, self.chain_id, log, true).await
+            }
+            _ => meta_of(self.chain_id, log, true),
+        };
+
+        vec![DomainEvent::new(meta, kind)]
     }
 }
 

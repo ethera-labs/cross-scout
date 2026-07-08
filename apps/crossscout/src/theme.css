@@ -613,6 +613,30 @@
     @apply flex flex-wrap items-center gap-2.5 border-b border-cs-line py-2.5 last:border-b-0;
   }
 
+  .action-asset {
+    @apply flex min-w-[132px] items-center gap-2.5;
+  }
+
+  .action-asset > span:last-child {
+    @apply flex min-w-0 flex-col;
+  }
+
+  .action-asset strong {
+    @apply overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-bold text-cs-fg;
+  }
+
+  .action-asset small {
+    @apply overflow-hidden text-ellipsis whitespace-nowrap text-[10.5px] uppercase text-cs-faint;
+  }
+
+  .token-logo {
+    @apply flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full border border-cs-line-2 bg-cs-bg-2 object-cover;
+  }
+
+  .token-logo-fallback {
+    @apply px-1 text-[9px] font-extrabold text-cs-faint;
+  }
+
   .action-type {
     @apply shrink-0 rounded-chip bg-cs-accent-soft px-2 py-1 text-[10px] font-extrabold text-cs-accent;
   }
@@ -622,7 +646,15 @@
   }
 
   .action-amount {
-    @apply ml-auto shrink-0 text-sm text-cs-fg;
+    @apply shrink-0 text-right text-sm text-cs-fg;
+  }
+
+  .action-row-actions {
+    @apply ml-auto flex shrink-0 items-center gap-2.5;
+  }
+
+  .add-token-button {
+    @apply px-2.5 py-1.5 text-[11px];
   }
 
   .offchain-note {

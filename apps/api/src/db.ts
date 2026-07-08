@@ -21,6 +21,12 @@ import { fromHex, toHex, toIso } from './convert.ts';
 import type { IntervalParam, WindowParam } from './params.ts';
 import { windowInterval } from './params.ts';
 import {
+  enrichMailboxFees,
+  enrichSuperblockFees,
+  enrichTransfersUsd,
+  enrichXtUsd,
+} from './pricing.ts';
+import {
   toActivityPoint,
   toAssetVolume,
   toInstance,
@@ -93,7 +99,7 @@ export async function getSuperblock(number: number): Promise<Superblock | null> 
   if (!row) return null;
   const chainRows = await sql`
     select * from superblock_chains where superblock_number = ${number} order by chain_id`;
-  return toSuperblock(row, chainRows.map(toSuperblockChain));
+  return enrichSuperblockFees(toSuperblock(row, chainRows.map(toSuperblockChain)));
 }
 
 export async function listSuperblocks(limit = 50): Promise<Superblock[]> {
@@ -122,7 +128,7 @@ export async function getXtDetail(hashHex: string): Promise<XtDetail | null> {
   const [xtRow] = await sql`select * from xts where xt_hash = ${buf}`;
   if (!xtRow) return null;
 
-  const xt = toXt(xtRow);
+  const xt = enrichXtUsd(toXt(xtRow));
   // instances.session = xt_hash (same bytes32 identity)
   const instance = await getInstance(toHex(buf)!);
   const mbRows = await sql`select * from mailbox_messages where xt_hash = ${buf} order by ts`;
@@ -134,14 +140,15 @@ export async function getXtDetail(hashHex: string): Promise<XtDetail | null> {
     select distinct tk.* from tokens tk
     join transfers tr on tr.chain_id = tk.chain_id and tr.token = tk.address
     where tr.session = ${buf}`;
+  const tokens = tokenRows.map(toTokenMeta);
 
   return {
     xt,
     instance,
-    mailbox: mbRows.map(toMailbox),
+    mailbox: mbRows.map(toMailbox).map(enrichMailboxFees),
     superblock,
-    transfers: transferRows.map(toTransfer),
-    tokens: tokenRows.map(toTokenMeta),
+    transfers: enrichTransfersUsd(transferRows.map(toTransfer), tokens),
+    tokens,
   };
 }
 

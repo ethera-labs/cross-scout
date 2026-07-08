@@ -7,7 +7,7 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use cross_scout_types::{
     Decision, Direction, Instance, MailboxMessage, Superblock, SuperblockChain, SuperblockStatus,
-    TokenMeta, Transfer, Xt, XtStatus,
+    TokenMeta, Transfer, TxFee, Xt, XtStatus,
 };
 
 fn xt_status(s: &str) -> XtStatus {
@@ -41,6 +41,19 @@ fn superblock_status(s: &str) -> SuperblockStatus {
         "finalized" => SuperblockStatus::Finalized,
         _ => SuperblockStatus::Proposed,
     }
+}
+
+fn tx_fee(
+    gas_used: &Option<BigDecimal>,
+    effective_gas_price_wei: &Option<BigDecimal>,
+    fee_wei: &Option<BigDecimal>,
+) -> Option<TxFee> {
+    Some(TxFee {
+        gas_used: decimal_string(gas_used.as_ref()?),
+        effective_gas_price_wei: decimal_string(effective_gas_price_wei.as_ref()?),
+        fee_wei: decimal_string(fee_wei.as_ref()?),
+        fee_usd: None,
+    })
 }
 
 #[derive(sqlx::FromRow)]
@@ -77,6 +90,7 @@ impl XtRow {
             receiver: opt_hex(&self.receiver),
             label: self.label,
             value_wei: self.value_wei.as_ref().map(decimal_string),
+            value_usd: None,
             status: xt_status(&self.status),
             stage: self.stage.clamp(0, 255) as u8,
             superblock_number: self.superblock_number,
@@ -131,6 +145,9 @@ pub struct MailboxRow {
     pub block_hash: Vec<u8>,
     pub log_index: i32,
     pub tx_hash: Option<Vec<u8>>,
+    pub gas_used: Option<BigDecimal>,
+    pub effective_gas_price_wei: Option<BigDecimal>,
+    pub fee_wei: Option<BigDecimal>,
     pub ts: DateTime<Utc>,
 }
 
@@ -151,6 +168,7 @@ impl MailboxRow {
             block_hash: hex_prefixed(&self.block_hash),
             log_index: self.log_index,
             tx_hash: opt_hex(&self.tx_hash),
+            tx_fee: tx_fee(&self.gas_used, &self.effective_gas_price_wei, &self.fee_wei),
             ts: rfc3339(&self.ts),
         }
     }
@@ -182,6 +200,7 @@ impl TransferRow {
             kind: self.kind,
             token: opt_hex(&self.token),
             amount: decimal_string(&self.amount),
+            amount_usd: None,
             src_chain: self.src_chain,
             dst_chain: self.dst_chain,
             sender: hex_prefixed(&self.sender),
@@ -251,6 +270,9 @@ pub struct SuperblockRow {
     pub prove_ms: Option<i32>,
     pub l1_tx: Option<Vec<u8>>,
     pub l1_block: Option<i64>,
+    pub l1_gas_used: Option<BigDecimal>,
+    pub l1_effective_gas_price_wei: Option<BigDecimal>,
+    pub l1_fee_wei: Option<BigDecimal>,
     pub proposed_at: Option<DateTime<Utc>>,
     pub validated_at: Option<DateTime<Utc>>,
     pub finalized_at: Option<DateTime<Utc>>,
@@ -269,6 +291,7 @@ impl SuperblockRow {
             prove_ms: self.prove_ms,
             l1_tx: opt_hex(&self.l1_tx),
             l1_block: self.l1_block,
+            l1_tx_fee: tx_fee(&self.l1_gas_used, &self.l1_effective_gas_price_wei, &self.l1_fee_wei),
             proposed_at: opt_rfc3339(&self.proposed_at),
             validated_at: opt_rfc3339(&self.validated_at),
             finalized_at: opt_rfc3339(&self.finalized_at),

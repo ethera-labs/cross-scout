@@ -16,7 +16,7 @@ token: string | null,
 /**
  * Raw base-unit amount (token decimals in `TokenMeta`), decimal string.
  */
-amount: string, srcChain: number, dstChain: number, sender: string, receiver: string, messageId: string | null, chainId: number, txHash: string | null, 
+amount: string, amountUsd: string | null, srcChain: number, dstChain: number, sender: string, receiver: string, messageId: string | null, chainId: number, txHash: string | null,
 /**
  * `false` while only a flashblock pre-confirmation has been seen.
  */

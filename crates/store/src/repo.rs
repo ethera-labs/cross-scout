@@ -3,53 +3,12 @@
 
 use alloy::primitives::{Address, B256, U256};
 use chrono::{DateTime, Utc};
-use cross_scout_types::{DomainEvent, Instance, Superblock, TokenMeta, Transfer, Xt};
+use cross_scout_types::{DomainEvent, Instance, Superblock, TokenMeta, Transfer, Xt, XtStatus};
 
 use crate::convert::*;
 use crate::rows::*;
+use crate::write::{MailboxInsert, TransferInsert, XtObservation, XtObservationEffect};
 use crate::{Db, StoreResult};
-
-/// Everything needed to persist one mailbox message.
-pub struct MailboxInsert<'a> {
-    pub direction: &'a str,
-    pub src_chain: Option<i32>,
-    pub dst_chain: Option<i32>,
-    pub session: Option<&'a B256>,
-    pub sender: Option<&'a Address>,
-    pub receiver: Option<&'a Address>,
-    pub label: Option<&'a str>,
-    pub xt_hash: Option<&'a B256>,
-    pub chain_id: i32,
-    pub block_number: Option<i64>,
-    pub block_hash: &'a B256,
-    pub log_index: i32,
-    pub tx_hash: Option<&'a B256>,
-    pub gas_used: Option<&'a U256>,
-    pub effective_gas_price_wei: Option<&'a U256>,
-    pub ts: DateTime<Utc>,
-}
-
-/// Everything needed to persist one source-leg asset transfer.
-pub struct TransferInsert<'a> {
-    pub session: &'a B256,
-    /// `eth` for native transfers, `erc20` for token transfers.
-    pub kind: &'a str,
-    /// Token address for `erc20`, `None` for native ETH.
-    pub token: Option<&'a Address>,
-    pub amount: &'a U256,
-    pub src_chain: i32,
-    pub dst_chain: i32,
-    pub sender: &'a Address,
-    pub receiver: &'a Address,
-    pub message_id: Option<&'a B256>,
-    pub chain_id: i32,
-    pub block_number: Option<i64>,
-    pub block_hash: &'a B256,
-    pub log_index: i32,
-    pub tx_hash: Option<&'a B256>,
-    pub safe: bool,
-    pub ts: DateTime<Utc>,
-}
 
 impl Db {
     // ── idempotency ───────────────────────────────────────────────
@@ -81,30 +40,26 @@ impl Db {
 
     // ── xts ───────────────────────────────────────────────────────
 
-    /// Create the XT row if absent, else fill in any descriptive fields we
-    /// learn later. Never regresses `stage`/`status`, and descriptive fields
-    /// are first-write-wins. `value_wei` must only ever be passed for a
-    /// native-ETH leg - token base units never belong in it. Returns `true`
-    /// when the row was newly inserted.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "arg list matches the xts columns; a params struct would not read better"
-    )]
-    pub async fn ensure_xt(
+    /// Record an XT observation. Never regresses `stage`/`status`, and
+    /// canonical fields are first-write-wins. `value_wei` must only ever be
+    /// passed for a native-ETH leg - token base units never belong in it.
+    pub async fn record_xt_observation(
         &self,
-        xt_hash: &B256,
-        src_chain: Option<i32>,
-        dst_chain: Option<i32>,
-        chains: &[i32],
-        sender: Option<&Address>,
-        receiver: Option<&Address>,
-        label: Option<&str>,
-        value_wei: Option<&U256>,
-        src_tx_hash: Option<&B256>,
-        first_seen: DateTime<Utc>,
-    ) -> StoreResult<bool> {
-        // `xmax = 0` distinguishes a fresh insert from a conflict-update.
-        let inserted: bool = sqlx::query_scalar(
+        obs: &XtObservation<'_>,
+    ) -> StoreResult<XtObservationEffect> {
+        let identity = obs.identity;
+        let src_chain = identity.map(|i| i.src_chain);
+        let dst_chain = identity.map(|i| i.dst_chain);
+        let sender = identity.map(|i| address_bytes(i.sender));
+        let receiver = identity.map(|i| address_bytes(i.receiver));
+        let label = identity.and_then(|i| i.label);
+        let value_wei = obs.value_wei.map(u256_decimal);
+        let src_tx_hash = obs.src_tx_hash.map(b256_bytes);
+
+        // `xmax = 0` distinguishes a fresh insert from a conflict-update. The
+        // conflict path updates only when the observation contributes a
+        // first-write-wins field, avoiding no-op rewrites on duplicate facts.
+        let inserted: Option<bool> = sqlx::query_scalar(
             r#"insert into xts
                  (xt_hash, src_chain, dst_chain, chains, sender, receiver, label,
                   value_wei, src_tx_hash, status, stage, first_seen_at, updated_at)
@@ -120,21 +75,30 @@ impl Db {
                  value_wei   = coalesce(xts.value_wei, excluded.value_wei),
                  src_tx_hash = coalesce(xts.src_tx_hash, excluded.src_tx_hash),
                  updated_at  = now()
+               where (xts.src_chain is null and excluded.src_chain is not null)
+                  or (xts.dst_chain is null and excluded.dst_chain is not null)
+                  or (coalesce(array_length(xts.chains, 1), 0) = 0
+                      and array_length(excluded.chains, 1) is not null)
+                  or (xts.sender is null and excluded.sender is not null)
+                  or (xts.receiver is null and excluded.receiver is not null)
+                  or (xts.label is null and excluded.label is not null)
+                  or (xts.value_wei is null and excluded.value_wei is not null)
+                  or (xts.src_tx_hash is null and excluded.src_tx_hash is not null)
                returning (xmax = 0)"#,
         )
-        .bind(b256_bytes(xt_hash))
+        .bind(b256_bytes(obs.xt_hash))
         .bind(src_chain)
         .bind(dst_chain)
-        .bind(chains)
-        .bind(sender.map(address_bytes))
-        .bind(receiver.map(address_bytes))
+        .bind(obs.participants())
+        .bind(sender)
+        .bind(receiver)
         .bind(label)
-        .bind(value_wei.map(u256_decimal))
-        .bind(src_tx_hash.map(b256_bytes))
-        .bind(first_seen)
-        .fetch_one(&self.pool)
+        .bind(value_wei)
+        .bind(src_tx_hash)
+        .bind(obs.first_seen)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(inserted)
+        Ok(XtObservationEffect::from_insert_return(inserted))
     }
 
     /// Stamp the first time an XT was seen pre-confirmed (flashblock leg).
@@ -152,6 +116,16 @@ impl Db {
         Ok(())
     }
 
+    fn xt_status_str(s: XtStatus) -> &'static str {
+        match s {
+            XtStatus::Pending => "pending",
+            XtStatus::Committed => "committed",
+            XtStatus::Validated => "validated",
+            XtStatus::Finalized => "finalized",
+            XtStatus::Failed => "failed",
+        }
+    }
+
     /// Advance an XT to `stage`/`status`, monotonically - an out-of-order or
     /// duplicate event carrying an earlier stage is ignored. The terminal
     /// rollback stage (255) always applies. Stamps `included_at` first-write
@@ -160,7 +134,7 @@ impl Db {
         &self,
         xt_hash: &B256,
         stage: u8,
-        status: &str,
+        status: XtStatus,
         ts: DateTime<Utc>,
     ) -> StoreResult<bool> {
         let res = sqlx::query(
@@ -174,7 +148,7 @@ impl Db {
         )
         .bind(b256_bytes(xt_hash))
         .bind(stage as i16)
-        .bind(status)
+        .bind(Self::xt_status_str(status))
         .bind(ts)
         .execute(&self.pool)
         .await?;

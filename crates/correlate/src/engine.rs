@@ -9,23 +9,16 @@
 
 use alloy::primitives::B256;
 use chrono::{DateTime, Utc};
-use cross_scout_store::repo::{MailboxInsert, TransferInsert};
+use cross_scout_store::write::{
+    MailboxInsert, TransferInsert, XtIdentity, XtObservation, XtObservationEffect,
+};
 use cross_scout_store::{Db, RedisPublisher};
-use cross_scout_types::{DomainEvent, EventKind, StreamEvent, XtStatus};
+use cross_scout_types::{DomainEvent, EventKind, StreamEvent};
 use tracing::{debug, warn};
 
 use crate::error::CorrelateResult;
 use crate::lifecycle::{next_stage, Stage};
-
-fn status_str(s: XtStatus) -> &'static str {
-    match s {
-        XtStatus::Pending => "pending",
-        XtStatus::Committed => "committed",
-        XtStatus::Validated => "validated",
-        XtStatus::Finalized => "finalized",
-        XtStatus::Failed => "failed",
-    }
-}
+use crate::mailbox::xt_identity_from_mailbox;
 
 /// Owns the datastore handles and applies events to canonical state.
 #[derive(Clone)]
@@ -93,28 +86,24 @@ impl Correlator {
                         "erc20-transfer"
                     };
                     let value_wei = asset.is_none().then_some(amount);
-                    let inserted = self
-                        .db
-                        .ensure_xt(
-                            session,
-                            Some(*src_chain),
-                            Some(*dst_chain),
-                            &[*src_chain, *dst_chain],
-                            Some(sender),
-                            Some(receiver),
+                    let obs = XtObservation::new(
+                        session,
+                        *src_chain,
+                        *dst_chain,
+                        Some(XtIdentity::new(
+                            *src_chain,
+                            *dst_chain,
+                            sender,
+                            receiver,
                             Some(label),
-                            value_wei,
-                            meta.tx_hash.as_ref(),
-                            ts,
-                        )
-                        .await?;
+                        )),
+                        value_wei,
+                        meta.tx_hash.as_ref(),
+                        ts,
+                    );
+                    let write = self.db.record_xt_observation(&obs).await?;
                     self.db
-                        .upsert_instance(
-                            session,
-                            Some(session),
-                            &[*src_chain, *dst_chain],
-                            Some(ts),
-                        )
+                        .upsert_instance(session, Some(session), obs.participants(), Some(ts))
                         .await?;
 
                     let kind = if asset.is_none() { "eth" } else { "erc20" };
@@ -144,37 +133,29 @@ impl Correlator {
                         self.db.ensure_token(meta.chain_id, asset).await?;
                     }
 
-                    self.publish_xt(session, inserted).await?;
+                    self.publish_xt_observation(session, write, false).await?;
                 } else {
                     // Flashblock pre-confirmation: record only the XT shell and
                     // stamp the pre-conf time. No transfer row - the sealed log
                     // (different block coords) is the one that counts, so
                     // inserting here would double-count once it lands.
-                    let inserted = self
-                        .db
-                        .ensure_xt(
-                            session,
-                            Some(*src_chain),
-                            Some(*dst_chain),
-                            &[*src_chain, *dst_chain],
-                            Some(sender),
-                            Some(receiver),
-                            None,
-                            None,
-                            meta.tx_hash.as_ref(),
-                            ts,
-                        )
-                        .await?;
+                    let obs = XtObservation::new(
+                        session,
+                        *src_chain,
+                        *dst_chain,
+                        Some(XtIdentity::new(
+                            *src_chain, *dst_chain, sender, receiver, None,
+                        )),
+                        None,
+                        meta.tx_hash.as_ref(),
+                        ts,
+                    );
+                    let write = self.db.record_xt_observation(&obs).await?;
                     self.db
-                        .upsert_instance(
-                            session,
-                            Some(session),
-                            &[*src_chain, *dst_chain],
-                            Some(ts),
-                        )
+                        .upsert_instance(session, Some(session), obs.participants(), Some(ts))
                         .await?;
                     self.db.set_preconfirmed_at(session, ts).await?;
-                    self.publish_xt(session, inserted).await?;
+                    self.publish_xt_observation(session, write, false).await?;
                 }
             }
 
@@ -196,31 +177,18 @@ impl Correlator {
                 label,
                 ..
             } => {
-                // The ACK is the dest→src reply, so its header is inverted
-                // relative to the transfer. `ensure_xt` is first-write-wins:
-                // when the dest chain's poller races ahead of the source
-                // chain's, an ACK-seeded row would pin the wrong direction and
-                // label for good. Only non-ACK messages may seed XT identity;
-                // the ACK still guarantees the row exists and lands in the
-                // mailbox table below with its full (inverted) header.
-                let seeds_identity = label != "ACK";
-                let inserted = self
-                    .db
-                    .ensure_xt(
-                        session,
-                        seeds_identity.then_some(*src_chain),
-                        seeds_identity.then_some(*dst_chain),
-                        &[*src_chain, *dst_chain],
-                        seeds_identity.then_some(sender),
-                        seeds_identity.then_some(receiver),
-                        seeds_identity.then_some(label),
-                        None,
-                        None,
-                        ts,
-                    )
-                    .await?;
+                let obs = XtObservation::new(
+                    session,
+                    *src_chain,
+                    *dst_chain,
+                    xt_identity_from_mailbox(label, *src_chain, *dst_chain, sender, receiver),
+                    None,
+                    None,
+                    ts,
+                );
+                let write = self.db.record_xt_observation(&obs).await?;
                 self.db
-                    .upsert_instance(session, Some(session), &[*src_chain, *dst_chain], Some(ts))
+                    .upsert_instance(session, Some(session), obs.participants(), Some(ts))
                     .await?;
 
                 let direction = match &ev.kind {
@@ -254,10 +222,9 @@ impl Correlator {
                 self.db.set_xt_block(session, &meta.block_hash).await?;
                 self.db.set_instance_decision(session, "commit", ts).await?;
 
-                if inserted {
-                    self.publish_xt(session, true).await?;
-                }
-                self.advance_xt(session, &ev.kind, ts).await?;
+                let advanced = self.advance_xt_stage(session, &ev.kind, ts).await?;
+                self.publish_xt_observation(session, write, advanced)
+                    .await?;
             }
 
             // Short-circuited before the raw-event journal above.
@@ -365,25 +332,42 @@ impl Correlator {
         Ok(())
     }
 
-    async fn advance_xt(
+    async fn advance_xt_stage(
         &self,
         xt_hash: &B256,
         kind: &EventKind,
         ts: DateTime<Utc>,
-    ) -> CorrelateResult<()> {
+    ) -> CorrelateResult<bool> {
         let Some(xt) = self.db.get_xt(xt_hash).await? else {
-            return Ok(());
+            return Ok(false);
         };
         let current = Stage::from_u8(xt.stage).unwrap_or(Stage::Requested);
         if let Some(next) = next_stage(current, kind) {
             let changed = self
                 .db
-                .advance_xt_stage(xt_hash, next.as_u8(), status_str(next.status()), ts)
+                .advance_xt_stage(xt_hash, next.as_u8(), next.status(), ts)
                 .await?;
             if changed {
                 debug!(stage = ?next, "xt advanced");
+            }
+            return Ok(changed);
+        }
+        Ok(false)
+    }
+
+    async fn publish_xt_observation(
+        &self,
+        xt_hash: &B256,
+        effect: XtObservationEffect,
+        stage_advanced: bool,
+    ) -> CorrelateResult<()> {
+        match effect {
+            XtObservationEffect::Inserted => self.publish_xt(xt_hash, true).await?,
+            XtObservationEffect::Extended => self.publish_xt(xt_hash, false).await?,
+            XtObservationEffect::Unchanged if stage_advanced => {
                 self.publish_xt(xt_hash, false).await?;
             }
+            XtObservationEffect::Unchanged => {}
         }
         Ok(())
     }

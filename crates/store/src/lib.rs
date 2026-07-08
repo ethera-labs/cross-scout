@@ -10,6 +10,7 @@ pub mod error;
 pub mod redis;
 pub mod repo;
 pub mod rows;
+pub mod write;
 
 pub use error::{StoreError, StoreResult};
 pub use redis::RedisPublisher;
@@ -27,7 +28,7 @@ pub struct Db {
 
 impl Db {
     /// Open a pool. `max_conns` bounds concurrency between the ingestion
-    /// writers and the api readers when they share a database in dev.
+    /// writers and the api readers when they share a database.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] if the connection cannot be established.

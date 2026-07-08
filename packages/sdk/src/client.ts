@@ -4,6 +4,8 @@
 import type {
   ActivityPoint,
   AssetVolume,
+  Deposit,
+  DepositPage,
   Instance,
   MailboxView,
   NetworkStats,
@@ -13,6 +15,8 @@ import type {
   SearchResponse,
   StreamEvent,
   Superblock,
+  Withdrawal,
+  WithdrawalPage,
   XtDetail,
   XtPage,
 } from './types';
@@ -24,6 +28,14 @@ export interface ListXtsParams {
   cursor?: string;
   address?: string;
   token?: string;
+}
+
+export interface ListBridgeOpsParams {
+  status?: string;
+  chain?: number;
+  limit?: number;
+  cursor?: string;
+  address?: string;
 }
 
 export interface ActivityParams {
@@ -62,6 +74,22 @@ export class CrossScoutClient {
 
   getXt(hash: string): Promise<XtDetail> {
     return this.get<XtDetail>(`/v1/xts/${hash}`);
+  }
+
+  listDeposits(params: ListBridgeOpsParams = {}): Promise<DepositPage> {
+    return this.get<DepositPage>('/v1/deposits', params as Record<string, unknown>);
+  }
+
+  getDeposit(sourceHash: string): Promise<Deposit> {
+    return this.get<Deposit>(`/v1/deposits/${sourceHash}`);
+  }
+
+  listWithdrawals(params: ListBridgeOpsParams = {}): Promise<WithdrawalPage> {
+    return this.get<WithdrawalPage>('/v1/withdrawals', params as Record<string, unknown>);
+  }
+
+  getWithdrawal(withdrawalHash: string): Promise<Withdrawal> {
+    return this.get<Withdrawal>(`/v1/withdrawals/${withdrawalHash}`);
   }
 
   getInstance(id: string): Promise<Instance> {

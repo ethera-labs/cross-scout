@@ -136,6 +136,75 @@ create index if not exists transfers_token_idx   on transfers (token, ts desc);
 create index if not exists transfers_ts_idx      on transfers (ts desc);
 create index if not exists transfers_route_idx   on transfers (src_chain, dst_chain, ts desc);
 
+-- ── OP Stack L1/L2 bridge operations ─────────────────────────────
+-- Standard deposits and withdrawals are not mailbox sessions, so they are
+-- tracked separately from XTs.
+create table if not exists deposits (
+  source_hash     bytea primary key,
+  l2_chain_id     int    not null,
+  sender          bytea  not null,
+  receiver        bytea  not null,
+  mint_wei        numeric not null,
+  value_wei       numeric not null,
+  gas_limit       numeric not null,
+  is_creation     bool   not null,
+  status          text   not null default 'initiated',
+  l1_chain_id     int    not null,
+  l1_block_number bigint not null,
+  l1_block_hash   bytea  not null,
+  l1_log_index    int    not null,
+  l1_tx_hash      bytea,
+  initiated_at    timestamptz not null,
+  updated_at      timestamptz not null default now(),
+  unique (l1_chain_id, l1_block_hash, l1_log_index)
+);
+create index if not exists deposits_chain_status_idx on deposits (l2_chain_id, status);
+create index if not exists deposits_updated_idx on deposits (updated_at desc);
+create index if not exists deposits_sender_idx on deposits (sender);
+create index if not exists deposits_receiver_idx on deposits (receiver);
+
+create table if not exists withdrawals (
+  withdrawal_hash          bytea primary key,
+  l2_chain_id              int    not null,
+  nonce                    numeric,
+  sender                   bytea,
+  target                   bytea,
+  value_wei                numeric,
+  gas_limit                numeric,
+  status                   text   not null default 'initiated',
+  finalized_success        bool,
+
+  initiated_chain_id       int,
+  initiated_block_number   bigint,
+  initiated_block_hash     bytea,
+  initiated_log_index      int,
+  initiated_tx_hash        bytea,
+  initiated_at             timestamptz,
+
+  proven_l1_chain_id       int,
+  proven_l1_block_number   bigint,
+  proven_l1_block_hash     bytea,
+  proven_l1_log_index      int,
+  proven_l1_tx_hash        bytea,
+  proven_at                timestamptz,
+
+  finalized_l1_chain_id    int,
+  finalized_l1_block_number bigint,
+  finalized_l1_block_hash  bytea,
+  finalized_l1_log_index   int,
+  finalized_l1_tx_hash     bytea,
+  finalized_at             timestamptz,
+
+  updated_at               timestamptz not null default now(),
+  unique (initiated_chain_id, initiated_block_hash, initiated_log_index),
+  unique (proven_l1_chain_id, proven_l1_block_hash, proven_l1_log_index),
+  unique (finalized_l1_chain_id, finalized_l1_block_hash, finalized_l1_log_index)
+);
+create index if not exists withdrawals_chain_status_idx on withdrawals (l2_chain_id, status);
+create index if not exists withdrawals_updated_idx on withdrawals (updated_at desc);
+create index if not exists withdrawals_sender_idx on withdrawals (sender);
+create index if not exists withdrawals_target_idx on withdrawals (target);
+
 -- ── token metadata (lazily resolved via ERC-20 static calls) ──────
 -- A row appears when a transfer first references the token; the resolver
 -- fills symbol/name/decimals and stamps `refreshed_at` when it succeeds.

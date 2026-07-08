@@ -17,6 +17,7 @@ cross-scout-types.workspace = true
 cross-scout-store.workspace = true
 cross-scout-correlate.workspace = true
 cross-scout-ingest-el.workspace = true
+cross-scout-ingest-bridge.workspace = true
 cross-scout-ingest-flashblocks.workspace = true
 cross-scout-ingest-settlement.workspace = true
 alloy.workspace = true

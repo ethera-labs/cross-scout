@@ -1,6 +1,7 @@
 // REST surface (Hono): one handler per documented endpoint.
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import * as db from './db.ts';
 import { hexBytes, intParam, intervalParam, validCursor, windowParam } from './params.ts';
@@ -21,6 +22,10 @@ app.get('/v1', (c) =>
       'GET /ready',
       'GET /v1/xts',
       'GET /v1/xts/:hash',
+      'GET /v1/deposits',
+      'GET /v1/deposits/:sourceHash',
+      'GET /v1/withdrawals',
+      'GET /v1/withdrawals/:withdrawalHash',
       'GET /v1/instances/:id',
       'GET /v1/superblocks',
       'GET /v1/superblocks/:number',
@@ -78,10 +83,62 @@ app.get('/v1/xts', async (c) => {
   return c.json(page);
 });
 
+function bridgeOpsQuery(c: Context) {
+  const q = c.req.query();
+  const chain = intParam(q.chain);
+  const limit = intParam(q.limit);
+  if (q.chain && chain === undefined) return { error: c.json({ error: 'invalid chain' }, 400) };
+  if (q.limit && limit === undefined) return { error: c.json({ error: 'invalid limit' }, 400) };
+  if (q.cursor && !validCursor(q.cursor)) {
+    return { error: c.json({ error: 'invalid cursor' }, 400) };
+  }
+  const address = hexBytes(q.address, 20);
+  if (q.address && address === undefined) return { error: c.json({ error: 'invalid address' }, 400) };
+  return {
+    value: {
+      status: q.status,
+      chain,
+      limit,
+      cursor: q.cursor,
+      address: address ?? null,
+    },
+  };
+}
+
 // full XT lifecycle, session, mailbox, superblock, transfers
 app.get('/v1/xts/:hash', async (c) => {
   const detail = await db.getXtDetail(c.req.param('hash'));
   return detail ? c.json(detail) : c.json({ error: 'xt not found' }, 404);
+});
+
+// L1-to-L2 deposits observed on each rollup's L1 portal
+app.get('/v1/deposits', async (c) => {
+  const parsed = bridgeOpsQuery(c);
+  if ('error' in parsed) return parsed.error;
+  return c.json(await db.listDeposits(parsed.value));
+});
+
+app.get('/v1/deposits/:sourceHash', async (c) => {
+  if (!hexBytes(c.req.param('sourceHash'), 32)) {
+    return c.json({ error: 'invalid source hash' }, 400);
+  }
+  const deposit = await db.getDeposit(c.req.param('sourceHash'));
+  return deposit ? c.json(deposit) : c.json({ error: 'deposit not found' }, 404);
+});
+
+// L2-to-L1 withdrawals joined by withdrawalHash
+app.get('/v1/withdrawals', async (c) => {
+  const parsed = bridgeOpsQuery(c);
+  if ('error' in parsed) return parsed.error;
+  return c.json(await db.listWithdrawals(parsed.value));
+});
+
+app.get('/v1/withdrawals/:withdrawalHash', async (c) => {
+  if (!hexBytes(c.req.param('withdrawalHash'), 32)) {
+    return c.json({ error: 'invalid withdrawal hash' }, 400);
+  }
+  const withdrawal = await db.getWithdrawal(c.req.param('withdrawalHash'));
+  return withdrawal ? c.json(withdrawal) : c.json({ error: 'withdrawal not found' }, 404);
 });
 
 // cross-chain session and its derived decision

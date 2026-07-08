@@ -16,11 +16,11 @@ WebSocket.
 ## Architecture
 
 ```
-     op-reth (per rollup)        op-rbuilder        L1 (dispute games)
-     mailbox + bridge logs      flashblocks WS      DisputeGameFactory · AnchorStateRegistry
+     op-reth (per rollup)        op-rbuilder        L1 (portal + dispute games)
+     mailbox + bridge logs      flashblocks WS      OptimismPortal · DGF · ASR
               │                       │                      │
               ▼                       ▼                      ▼
-         ingest-el          ingest-flashblocks      ingest-settlement     (Rust)
+         ingest-el          ingest-flashblocks      ingest-bridge · ingest-settlement
                                       │  normalized DomainEvents
                                       ▼
                              correlate  (session join → lifecycle SM
@@ -62,9 +62,10 @@ stream. The transition table lives in
 cross-scout/
 ├─ crates/                  # Rust workspace (cargo)
 │  ├─ types/                # domain DTOs (ts-rs export), DomainEvent, Source trait
-│  ├─ store/                # sqlx models, idempotent upserts, Redis publisher
+│  ├─ store/                # sqlx models, idempotent upserts, NOTIFY publisher
 │  ├─ correlate/            # session join + lifecycle state machine
 │  ├─ ingest-el/            # mailbox + bridge logs per rollup (+ shared EVM log poller)
+│  ├─ ingest-bridge/        # OP Stack deposits and withdrawals
 │  ├─ ingest-flashblocks/   # op-rbuilder WS pre-confirmations
 │  ├─ ingest-settlement/    # L1 dispute games + anchor registry
 │  └─ indexer-core/         # runtime, source registry, scheduler, binary
@@ -84,8 +85,9 @@ cross-scout/
    raw signals into normalized `DomainEvent`s (`crates/types/src/event.rs`):
    mailbox key logs are joined with their headers via the contract's
    append-only `messageHeaderList*` views; flashblock frames are unpacked and
-   bridge-targeted txs decoded from calldata; dispute-game creations carry the
-   whole superblock payload in their `create()` calldata.
+   bridge-targeted txs decoded from calldata; OP Stack portal/message-passer
+   logs produce deposit and withdrawal operations; dispute-game creations carry
+   the whole superblock payload in their `create()` calldata.
 2. Correlate. `indexer-core` funnels every source onto one channel. The
    `Correlator` records each event idempotently (`raw_events` keyed by
    `(chain_id, block_hash, log_index)`), joins by session, advances the per-XT
@@ -97,24 +99,28 @@ cross-scout/
 
 ## Endpoints
 
-| Method | Path                            | Description                                               |
-|--------|---------------------------------|-----------------------------------------------------------|
-| GET    | `/health`                       | liveness - process is up                                  |
+| Method | Path                            | Description                                                |
+|--------|---------------------------------|------------------------------------------------------------|
+| GET    | `/health`                       | liveness - process is up                                   |
 | GET    | `/ready`                        | readiness - Postgres answers                               |
-| GET    | `/v1/xts`                       | list XTs, filter by `status`, `chain`, `address`, `token` |
-| GET    | `/v1/xts/:hash`                 | full XT lifecycle, transfers, mailbox, superblock, tokens |
-| GET    | `/v1/instances/:id`             | cross-chain session and its derived decision              |
-| GET    | `/v1/superblocks/:number`       | per-chain state transitions and dispute game              |
-| GET    | `/v1/mailbox/:chain`            | inbox/outbox roots and message log                        |
-| GET    | `/v1/rollups/:chain`            | counterparty stats and recent XTs                         |
-| GET    | `/v1/stats`                     | network totals, 24h window, commit rate, route volumes    |
-| GET    | `/v1/analytics/activity`        | zero-filled activity time series (`window`, `interval`)   |
-| GET    | `/v1/analytics/routes`          | per-route transfer counts and ETH volume (`window`)       |
-| GET    | `/v1/analytics/assets`          | top transferred assets with token metadata (`window`)     |
-| GET    | `/v1/analytics/assets/activity` | per-asset time series (`token`, `window`)                 |
-| GET    | `/v1/search`                    | resolve a hash, address, token or superblock number       |
-| GET    | `/v1/network`                   | publisher snapshot, period history, queue-depth series    |
-| WS     | `/v1/stream`                    | live feed of new XTs and superblock changes               |
+| GET    | `/v1/xts`                       | list XTs, filter by `status`, `chain`, `address`, `token`  |
+| GET    | `/v1/xts/:hash`                 | full XT lifecycle, transfers, mailbox, superblock, tokens  |
+| GET    | `/v1/deposits`                  | L1->L2 deposits, filter by `status`, `chain`, `address`    |
+| GET    | `/v1/deposits/:sourceHash`      | one L1->L2 deposit by source hash                          |
+| GET    | `/v1/withdrawals`               | L2->L1 withdrawals, filter by `status`, `chain`, `address` |
+| GET    | `/v1/withdrawals/:hash`         | one L2->L1 withdrawal by withdrawal hash                   |
+| GET    | `/v1/instances/:id`             | cross-chain session and its derived decision               |
+| GET    | `/v1/superblocks/:number`       | per-chain state transitions and dispute game               |
+| GET    | `/v1/mailbox/:chain`            | inbox/outbox roots and message log                         |
+| GET    | `/v1/rollups/:chain`            | counterparty stats and recent XTs                          |
+| GET    | `/v1/stats`                     | network totals, 24h window, commit rate, route volumes     |
+| GET    | `/v1/analytics/activity`        | zero-filled activity time series (`window`, `interval`)    |
+| GET    | `/v1/analytics/routes`          | per-route transfer counts and ETH volume (`window`)        |
+| GET    | `/v1/analytics/assets`          | top transferred assets with token metadata (`window`)      |
+| GET    | `/v1/analytics/assets/activity` | per-asset time series (`token`, `window`)                  |
+| GET    | `/v1/search`                    | resolve a hash, address, token or superblock number        |
+| GET    | `/v1/network`                   | publisher snapshot, period history, queue-depth series     |
+| WS     | `/v1/stream`                    | live feed of new XTs and superblock changes                |
 
 ## Running locally
 
@@ -149,6 +155,8 @@ Each indexer instance is scoped to one host rollup through `HOST_CHAIN_ID`.
 `EL_RPC_URLS` lists every participating rollup (host + counterparties) as
 `chain_id=url` pairs so both legs of a session are observed;
 `FLASHBLOCKS_WS_URLS` is optional and only adds pre-confirmations.
+`PORTAL_ADDRESSES` lists each rollup's L1 `OptimismPortal` as
+`chain_id=address` pairs for deposits and withdrawal prove/finalize legs.
 
 ## Development
 

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type {
   ActivityPoint,
   AssetVolume,
+  Deposit,
   MailboxView,
   NetworkStats,
   NetworkView,
@@ -10,6 +11,7 @@ import type {
   RouteVolume,
   StreamEvent,
   Superblock,
+  Withdrawal,
   Xt,
   XtDetail,
 } from '@cross-scout/sdk';
@@ -20,6 +22,7 @@ import { chainById, makeChains } from './lib/chains';
 import { chainName } from './lib/format';
 import type { Network, Page, Theme } from './lib/nav';
 import type { SuperblockFilter, XtFilter } from './lib/status';
+import { BridgePage } from './pages/BridgePage';
 import { InstancesPage } from './pages/InstancesPage';
 import { MailboxPage } from './pages/MailboxPage';
 import { NetworkPage } from './pages/NetworkPage';
@@ -70,6 +73,8 @@ export function App() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [stats, setStats] = useState<NetworkStats | null>(null);
   const [xts, setXts] = useState<Xt[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [superblocks, setSuperblocks] = useState<Superblock[]>([]);
   const [activity, setActivity] = useState<ActivityPoint[]>([]);
   const [routes, setRoutes] = useState<RouteVolume[]>([]);
@@ -102,12 +107,16 @@ export function App() {
     const results = await Promise.allSettled([
       api.getStats(),
       api.listXts({ limit: 100 }),
+      api.listDeposits({ limit: 100 }),
+      api.listWithdrawals({ limit: 100 }),
       api.listSuperblocks(50),
     ]);
 
-    const [statsResult, xtsResult, superblocksResult] = results;
+    const [statsResult, xtsResult, depositsResult, withdrawalsResult, superblocksResult] = results;
     if (statsResult?.status === 'fulfilled') setStats(statsResult.value);
     if (xtsResult?.status === 'fulfilled') setXts(sortXts(xtsResult.value.items));
+    if (depositsResult?.status === 'fulfilled') setDeposits(depositsResult.value.items);
+    if (withdrawalsResult?.status === 'fulfilled') setWithdrawals(withdrawalsResult.value.items);
     if (superblocksResult?.status === 'fulfilled') setSuperblocks(superblocksResult.value);
 
     setError(firstSettledError(results));
@@ -172,13 +181,15 @@ export function App() {
       if (xt.srcChain != null) ids.add(xt.srcChain);
       if (xt.dstChain != null) ids.add(xt.dstChain);
     }
+    for (const deposit of deposits) ids.add(deposit.l2ChainId);
+    for (const withdrawal of withdrawals) ids.add(withdrawal.l2ChainId);
     const host = stats?.hostChain;
     return [...ids].sort((a, b) => {
       if (host != null && a === host) return -1;
       if (host != null && b === host) return 1;
       return a - b;
     });
-  }, [stats, xts]);
+  }, [deposits, stats, withdrawals, xts]);
 
   const chains = useMemo(() => makeChains(chainIds, stats?.hostChain), [chainIds, stats?.hostChain]);
   const byId = useMemo(() => chainById(chains), [chains]);
@@ -248,6 +259,10 @@ export function App() {
           }
           if (result.type === 'superblock') {
             goSuperblock(result.superblock.number);
+            return;
+          }
+          if (result.type === 'deposit' || result.type === 'withdrawal') {
+            nav('bridge');
             return;
           }
           if (result.type === 'address') {
@@ -325,6 +340,35 @@ export function App() {
     );
   }, [normalizedQuery, superblocks]);
 
+  const filteredDeposits = useMemo(() => {
+    if (!normalizedQuery) return deposits;
+    return deposits.filter((deposit) =>
+      [
+        deposit.sourceHash,
+        deposit.sender,
+        deposit.receiver,
+        chainName(deposit.l2ChainId),
+        deposit.status,
+      ]
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+    );
+  }, [deposits, normalizedQuery]);
+
+  const filteredWithdrawals = useMemo(() => {
+    if (!normalizedQuery) return withdrawals;
+    return withdrawals.filter((withdrawal) =>
+      [
+        withdrawal.withdrawalHash,
+        withdrawal.sender,
+        withdrawal.target,
+        chainName(withdrawal.l2ChainId),
+        withdrawal.status,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
+    );
+  }, [normalizedQuery, withdrawals]);
+
   const selectedXt = selectedHash ? xts.find((xt) => xt.xtHash === selectedHash) ?? null : null;
 
   let content: ReactNode;
@@ -338,6 +382,16 @@ export function App() {
           setFilter={setXtFilter}
           onTx={goTx}
           live={streamUp}
+        />
+      );
+      break;
+    case 'bridge':
+      content = (
+        <BridgePage
+          deposits={filteredDeposits}
+          withdrawals={filteredWithdrawals}
+          chains={byId}
+          loading={loading}
         />
       );
       break;

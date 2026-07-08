@@ -54,6 +54,7 @@ export function AppHeader({
 
   const navLinks: Array<[Page, string]> = [
     ['txs', 'TRANSACTIONS'],
+    ['bridge', 'BRIDGE'],
     ['superblocks', 'SUPERBLOCKS'],
     ['instances', 'SESSIONS'],
     ['mailbox', 'MAILBOX'],

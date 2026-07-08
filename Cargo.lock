@@ -1380,6 +1380,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "cross-scout-correlate",
+ "cross-scout-ingest-bridge",
  "cross-scout-ingest-el",
  "cross-scout-ingest-flashblocks",
  "cross-scout-ingest-settlement",
@@ -1391,6 +1392,17 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "cross-scout-ingest-bridge"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "async-trait",
+ "cross-scout-ingest-el",
+ "cross-scout-types",
+ "tracing",
 ]
 
 [[package]]

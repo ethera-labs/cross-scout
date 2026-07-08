@@ -2,12 +2,18 @@
 //! overlapping backfills and duplicate deliveries converge to the same state.
 
 use alloy::primitives::{Address, B256, U256};
+use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
-use cross_scout_types::{DomainEvent, Instance, Superblock, TokenMeta, Transfer, Xt, XtStatus};
+use cross_scout_types::{
+    Deposit, DomainEvent, Instance, Superblock, TokenMeta, Transfer, Withdrawal, Xt, XtStatus,
+};
 
 use crate::convert::*;
 use crate::rows::*;
-use crate::write::{MailboxInsert, TransferInsert, XtObservation, XtObservationEffect};
+use crate::write::{
+    DepositInsert, MailboxInsert, TransferInsert, WithdrawalFinalizedInsert,
+    WithdrawalInitiatedInsert, WithdrawalProvenInsert, XtObservation, XtObservationEffect,
+};
 use crate::{Db, StoreResult};
 
 impl Db {
@@ -351,6 +357,170 @@ impl Db {
         Ok(())
     }
 
+    // ── OP Stack deposits and withdrawals ────────────────────────
+
+    /// Persist one L1-to-L2 deposit initiation from an `OptimismPortal`.
+    pub async fn upsert_deposit_initiated(&self, d: DepositInsert<'_>) -> StoreResult<()> {
+        sqlx::query(
+            r#"insert into deposits
+                 (source_hash, l2_chain_id, sender, receiver, mint_wei, value_wei,
+                  gas_limit, is_creation, status, l1_chain_id, l1_block_number,
+                  l1_block_hash, l1_log_index, l1_tx_hash, initiated_at, updated_at)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,'initiated',$9,$10,$11,$12,$13,$14,now())
+               on conflict (source_hash) do update set
+                 sender      = coalesce(deposits.sender, excluded.sender),
+                 receiver    = coalesce(deposits.receiver, excluded.receiver),
+                 mint_wei    = coalesce(deposits.mint_wei, excluded.mint_wei),
+                 value_wei   = coalesce(deposits.value_wei, excluded.value_wei),
+                 gas_limit   = coalesce(deposits.gas_limit, excluded.gas_limit),
+                 is_creation = deposits.is_creation or excluded.is_creation,
+                 updated_at  = now()"#,
+        )
+        .bind(b256_bytes(d.source_hash))
+        .bind(d.l2_chain_id)
+        .bind(address_bytes(d.sender))
+        .bind(address_bytes(d.receiver))
+        .bind(u256_decimal(d.mint))
+        .bind(u256_decimal(d.value))
+        .bind(BigDecimal::from(d.gas_limit))
+        .bind(d.is_creation)
+        .bind(d.l1_chain_id)
+        .bind(d.l1_block_number)
+        .bind(b256_bytes(d.l1_block_hash))
+        .bind(d.l1_log_index)
+        .bind(d.l1_tx_hash.map(b256_bytes))
+        .bind(d.ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Persist one L2-to-L1 withdrawal initiation from `L2ToL1MessagePasser`.
+    pub async fn upsert_withdrawal_initiated(
+        &self,
+        w: WithdrawalInitiatedInsert<'_>,
+    ) -> StoreResult<()> {
+        sqlx::query(
+            r#"insert into withdrawals
+                 (withdrawal_hash, l2_chain_id, nonce, sender, target, value_wei, gas_limit,
+                  status, initiated_chain_id, initiated_block_number, initiated_block_hash,
+                  initiated_log_index, initiated_tx_hash, initiated_at, updated_at)
+               values ($1,$2,$3,$4,$5,$6,$7,'initiated',$8,$9,$10,$11,$12,$13,now())
+               on conflict (withdrawal_hash) do update set
+                 l2_chain_id            = excluded.l2_chain_id,
+                 nonce                  = coalesce(withdrawals.nonce, excluded.nonce),
+                 sender                 = coalesce(withdrawals.sender, excluded.sender),
+                 target                 = coalesce(withdrawals.target, excluded.target),
+                 value_wei              = coalesce(withdrawals.value_wei, excluded.value_wei),
+                 gas_limit              = coalesce(withdrawals.gas_limit, excluded.gas_limit),
+                 initiated_chain_id     = coalesce(withdrawals.initiated_chain_id, excluded.initiated_chain_id),
+                 initiated_block_number = coalesce(withdrawals.initiated_block_number, excluded.initiated_block_number),
+                 initiated_block_hash   = coalesce(withdrawals.initiated_block_hash, excluded.initiated_block_hash),
+                 initiated_log_index    = coalesce(withdrawals.initiated_log_index, excluded.initiated_log_index),
+                 initiated_tx_hash      = coalesce(withdrawals.initiated_tx_hash, excluded.initiated_tx_hash),
+                 initiated_at           = coalesce(withdrawals.initiated_at, excluded.initiated_at),
+                 updated_at             = now()"#,
+        )
+        .bind(b256_bytes(w.withdrawal_hash))
+        .bind(w.l2_chain_id)
+        .bind(u256_decimal(w.nonce))
+        .bind(address_bytes(w.sender))
+        .bind(address_bytes(w.target))
+        .bind(u256_decimal(w.value))
+        .bind(u256_decimal(w.gas_limit))
+        .bind(w.chain_id)
+        .bind(w.block_number)
+        .bind(b256_bytes(w.block_hash))
+        .bind(w.log_index)
+        .bind(w.tx_hash.map(b256_bytes))
+        .bind(w.ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Mark a withdrawal as proven on L1, preserving a later finalization if
+    /// events are backfilled out of order.
+    pub async fn mark_withdrawal_proven(&self, w: WithdrawalProvenInsert<'_>) -> StoreResult<()> {
+        sqlx::query(
+            r#"insert into withdrawals
+                 (withdrawal_hash, l2_chain_id, status, proven_l1_chain_id,
+                  proven_l1_block_number, proven_l1_block_hash, proven_l1_log_index,
+                  proven_l1_tx_hash, proven_at, updated_at)
+               values ($1,$2,'proven',$3,$4,$5,$6,$7,$8,now())
+               on conflict (withdrawal_hash) do update set
+                 l2_chain_id            = excluded.l2_chain_id,
+                 status                 = case
+                                            when withdrawals.status in ('finalized','finalized_failed')
+                                            then withdrawals.status
+                                            else 'proven'
+                                          end,
+                 proven_l1_chain_id     = coalesce(withdrawals.proven_l1_chain_id, excluded.proven_l1_chain_id),
+                 proven_l1_block_number = coalesce(withdrawals.proven_l1_block_number, excluded.proven_l1_block_number),
+                 proven_l1_block_hash   = coalesce(withdrawals.proven_l1_block_hash, excluded.proven_l1_block_hash),
+                 proven_l1_log_index    = coalesce(withdrawals.proven_l1_log_index, excluded.proven_l1_log_index),
+                 proven_l1_tx_hash      = coalesce(withdrawals.proven_l1_tx_hash, excluded.proven_l1_tx_hash),
+                 proven_at              = coalesce(withdrawals.proven_at, excluded.proven_at),
+                 updated_at             = now()"#,
+        )
+        .bind(b256_bytes(w.withdrawal_hash))
+        .bind(w.l2_chain_id)
+        .bind(w.l1_chain_id)
+        .bind(w.l1_block_number)
+        .bind(b256_bytes(w.l1_block_hash))
+        .bind(w.l1_log_index)
+        .bind(w.l1_tx_hash.map(b256_bytes))
+        .bind(w.ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Mark a withdrawal as finalized on L1. `success=false` records a portal
+    /// finalization event where the target call reverted.
+    pub async fn mark_withdrawal_finalized(
+        &self,
+        w: WithdrawalFinalizedInsert<'_>,
+    ) -> StoreResult<()> {
+        let status = if w.success {
+            "finalized"
+        } else {
+            "finalized_failed"
+        };
+        sqlx::query(
+            r#"insert into withdrawals
+                 (withdrawal_hash, l2_chain_id, status, finalized_success,
+                  finalized_l1_chain_id, finalized_l1_block_number,
+                  finalized_l1_block_hash, finalized_l1_log_index,
+                  finalized_l1_tx_hash, finalized_at, updated_at)
+               values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
+               on conflict (withdrawal_hash) do update set
+                 l2_chain_id                = excluded.l2_chain_id,
+                 status                     = excluded.status,
+                 finalized_success          = excluded.finalized_success,
+                 finalized_l1_chain_id      = coalesce(withdrawals.finalized_l1_chain_id, excluded.finalized_l1_chain_id),
+                 finalized_l1_block_number  = coalesce(withdrawals.finalized_l1_block_number, excluded.finalized_l1_block_number),
+                 finalized_l1_block_hash    = coalesce(withdrawals.finalized_l1_block_hash, excluded.finalized_l1_block_hash),
+                 finalized_l1_log_index     = coalesce(withdrawals.finalized_l1_log_index, excluded.finalized_l1_log_index),
+                 finalized_l1_tx_hash       = coalesce(withdrawals.finalized_l1_tx_hash, excluded.finalized_l1_tx_hash),
+                 finalized_at               = coalesce(withdrawals.finalized_at, excluded.finalized_at),
+                 updated_at                 = now()"#,
+        )
+        .bind(b256_bytes(w.withdrawal_hash))
+        .bind(w.l2_chain_id)
+        .bind(status)
+        .bind(w.success)
+        .bind(w.l1_chain_id)
+        .bind(w.l1_block_number)
+        .bind(b256_bytes(w.l1_block_hash))
+        .bind(w.l1_log_index)
+        .bind(w.l1_tx_hash.map(b256_bytes))
+        .bind(w.ts)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     // ── superblocks ───────────────────────────────────────────────
 
     #[expect(
@@ -689,6 +859,85 @@ impl Db {
             .bind(from_block)
             .execute(&mut *tx)
             .await?;
+        sqlx::query("delete from deposits where l1_chain_id=$1 and l1_block_number > $2")
+            .bind(chain_id)
+            .bind(from_block)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            r#"update withdrawals set
+                 nonce = null,
+                 sender = null,
+                 target = null,
+                 value_wei = null,
+                 gas_limit = null,
+                 initiated_chain_id = null,
+                 initiated_block_number = null,
+                 initiated_block_hash = null,
+                 initiated_log_index = null,
+                 initiated_tx_hash = null,
+                 initiated_at = null,
+                 status = case
+                            when finalized_at is not null and finalized_success then 'finalized'
+                            when finalized_at is not null then 'finalized_failed'
+                            when proven_at is not null then 'proven'
+                            else 'initiated'
+                          end,
+                 updated_at = now()
+               where initiated_chain_id=$1 and initiated_block_number > $2"#,
+        )
+        .bind(chain_id)
+        .bind(from_block)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"update withdrawals set
+                 proven_l1_chain_id = null,
+                 proven_l1_block_number = null,
+                 proven_l1_block_hash = null,
+                 proven_l1_log_index = null,
+                 proven_l1_tx_hash = null,
+                 proven_at = null,
+                 status = case
+                            when finalized_at is not null and finalized_success then 'finalized'
+                            when finalized_at is not null then 'finalized_failed'
+                            when initiated_at is not null then 'initiated'
+                            else 'initiated'
+                          end,
+                 updated_at = now()
+               where proven_l1_chain_id=$1 and proven_l1_block_number > $2"#,
+        )
+        .bind(chain_id)
+        .bind(from_block)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"update withdrawals set
+                 finalized_success = null,
+                 finalized_l1_chain_id = null,
+                 finalized_l1_block_number = null,
+                 finalized_l1_block_hash = null,
+                 finalized_l1_log_index = null,
+                 finalized_l1_tx_hash = null,
+                 finalized_at = null,
+                 status = case
+                            when proven_at is not null then 'proven'
+                            when initiated_at is not null then 'initiated'
+                            else 'initiated'
+                          end,
+                 updated_at = now()
+               where finalized_l1_chain_id=$1 and finalized_l1_block_number > $2"#,
+        )
+        .bind(chain_id)
+        .bind(from_block)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            r#"delete from withdrawals
+               where initiated_at is null and proven_at is null and finalized_at is null"#,
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(dropped)
     }
@@ -758,6 +1007,24 @@ impl Db {
             }
             None => Ok(None),
         }
+    }
+
+    pub async fn get_deposit(&self, source_hash: &B256) -> StoreResult<Option<Deposit>> {
+        let row = sqlx::query_as::<_, DepositRow>("select * from deposits where source_hash=$1")
+            .bind(b256_bytes(source_hash))
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(DepositRow::into_dto))
+    }
+
+    pub async fn get_withdrawal(&self, withdrawal_hash: &B256) -> StoreResult<Option<Withdrawal>> {
+        let row = sqlx::query_as::<_, WithdrawalRow>(
+            "select * from withdrawals where withdrawal_hash=$1",
+        )
+        .bind(b256_bytes(withdrawal_hash))
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(WithdrawalRow::into_dto))
     }
 }
 

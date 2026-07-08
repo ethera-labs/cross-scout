@@ -52,6 +52,26 @@ pub enum SuperblockStatus {
     Finalized,
 }
 
+/// Deposit lifecycle exposed by OP Stack portal logs. The current model tracks
+/// the L1 initiation leg; it does not infer the derived L2 deposit transaction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "snake_case")]
+pub enum DepositStatus {
+    Initiated,
+}
+
+/// Withdrawal lifecycle across L2 `MessagePassed` and L1 portal logs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "snake_case")]
+pub enum WithdrawalStatus {
+    Initiated,
+    Proven,
+    Finalized,
+    FinalizedFailed,
+}
+
 /// Execution fee paid by an observed EVM transaction.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "generated/")]
@@ -250,6 +270,74 @@ pub struct Transfer {
     /// `false` while only a flashblock pre-confirmation has been seen.
     pub safe: bool,
     pub ts: String,
+}
+
+/// L1-to-L2 ETH deposit observed on a rollup's L1 `OptimismPortal`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct Deposit {
+    pub source_hash: String,
+    pub l2_chain_id: i32,
+    pub sender: String,
+    pub receiver: String,
+    pub mint_wei: String,
+    pub value_wei: String,
+    pub gas_limit: String,
+    pub is_creation: bool,
+    pub status: DepositStatus,
+    pub l1_chain_id: i32,
+    pub l1_block_number: i64,
+    pub l1_tx_hash: Option<String>,
+    pub initiated_at: String,
+    pub updated_at: String,
+}
+
+/// L2-to-L1 withdrawal lifecycle joined by `withdrawalHash`.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct Withdrawal {
+    pub withdrawal_hash: String,
+    pub l2_chain_id: i32,
+    pub nonce: Option<String>,
+    pub sender: Option<String>,
+    pub target: Option<String>,
+    pub value_wei: Option<String>,
+    pub gas_limit: Option<String>,
+    pub status: WithdrawalStatus,
+    pub finalized_success: Option<bool>,
+    pub initiated_chain_id: Option<i32>,
+    pub initiated_block_number: Option<i64>,
+    pub initiated_tx_hash: Option<String>,
+    pub initiated_at: Option<String>,
+    pub proven_l1_chain_id: Option<i32>,
+    pub proven_l1_block_number: Option<i64>,
+    pub proven_l1_tx_hash: Option<String>,
+    pub proven_at: Option<String>,
+    pub finalized_l1_chain_id: Option<i32>,
+    pub finalized_l1_block_number: Option<i64>,
+    pub finalized_l1_tx_hash: Option<String>,
+    pub finalized_at: Option<String>,
+    pub updated_at: String,
+}
+
+/// Cursor page for bridge deposits.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct DepositPage {
+    pub items: Vec<Deposit>,
+    pub next_cursor: Option<String>,
+}
+
+/// Cursor page for bridge withdrawals.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "generated/")]
+#[serde(rename_all = "camelCase")]
+pub struct WithdrawalPage {
+    pub items: Vec<Withdrawal>,
+    pub next_cursor: Option<String>,
 }
 
 /// Resolved (or pending) ERC-20 metadata for a token seen in a transfer.

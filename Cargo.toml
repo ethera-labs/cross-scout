@@ -5,6 +5,7 @@ members = [
   "crates/store",
   "crates/correlate",
   "crates/ingest-el",
+  "crates/ingest-bridge",
   "crates/ingest-flashblocks",
   "crates/ingest-settlement",
   "crates/indexer-core",
@@ -92,6 +93,7 @@ cross-scout-types = { path = "crates/types" }
 cross-scout-store = { path = "crates/store" }
 cross-scout-correlate = { path = "crates/correlate" }
 cross-scout-ingest-el = { path = "crates/ingest-el" }
+cross-scout-ingest-bridge = { path = "crates/ingest-bridge" }
 cross-scout-ingest-flashblocks = { path = "crates/ingest-flashblocks" }
 cross-scout-ingest-settlement = { path = "crates/ingest-settlement" }
 

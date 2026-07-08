@@ -5,6 +5,7 @@ export type Page =
   | 'overview'
   | 'txs'
   | 'txDetail'
+  | 'bridge'
   | 'superblocks'
   | 'superblockDetail'
   | 'instances'

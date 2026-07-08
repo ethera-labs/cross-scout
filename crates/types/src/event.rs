@@ -93,6 +93,44 @@ pub enum EventKind {
         state_root: B256,
     },
 
+    // ── OP Stack bridge (portal + message passer logs) ────────────
+    /// `TransactionDeposited` on a rollup's L1 portal: an L1-to-L2 deposit was
+    /// initiated. `source_hash` is the deposit's identity and derives its L2
+    /// transaction; `mint` is the ETH minted on L2, `value` the call value.
+    DepositInitiated {
+        source_hash: B256,
+        l2_chain_id: i32,
+        sender: Address,
+        receiver: Address,
+        mint: U256,
+        value: U256,
+        gas_limit: u64,
+        is_creation: bool,
+    },
+    /// `MessagePassed` on a rollup's message passer: an L2-to-L1 withdrawal was
+    /// initiated. `withdrawal_hash` joins the L1 prove/finalize legs.
+    WithdrawalInitiated {
+        withdrawal_hash: B256,
+        l2_chain_id: i32,
+        nonce: U256,
+        sender: Address,
+        target: Address,
+        value: U256,
+        gas_limit: U256,
+    },
+    /// `WithdrawalProven` on the rollup's L1 portal.
+    WithdrawalProven {
+        withdrawal_hash: B256,
+        l2_chain_id: i32,
+    },
+    /// `WithdrawalFinalized` on the rollup's L1 portal; `success = false`
+    /// means the finalizing call executed but the withdrawal target reverted.
+    WithdrawalFinalized {
+        withdrawal_hash: B256,
+        l2_chain_id: i32,
+        success: bool,
+    },
+
     // ── superblock / settlement (L1 dispute games) ────────────────
     /// `DisputeGameCreated` for the compose game type: the publisher settled
     /// a superblock on L1.
@@ -144,6 +182,10 @@ impl DomainEvent {
             EventKind::MessageDispatched { .. } => "message_dispatched",
             EventKind::MessageDelivered { .. } => "message_delivered",
             EventKind::BlockSealed { .. } => "block_sealed",
+            EventKind::DepositInitiated { .. } => "deposit_initiated",
+            EventKind::WithdrawalInitiated { .. } => "withdrawal_initiated",
+            EventKind::WithdrawalProven { .. } => "withdrawal_proven",
+            EventKind::WithdrawalFinalized { .. } => "withdrawal_finalized",
             EventKind::SuperblockProposed { .. } => "superblock_proposed",
             EventKind::SuperblockFinalized { .. } => "superblock_finalized",
         }

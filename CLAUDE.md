@@ -44,6 +44,10 @@ Requires Rust ≥ 1.89 (toolchain pinned `stable`) and Bun ≥ 1.3.
 crates / `anyhow` only in the binary, no `unwrap`/`expect` outside tests, `#[expect(...)]` with a
 reason over `#[allow(...)]`).
 
+**Comments (all languages):** production comments only - explain what the code does and why in
+domain terms. Never name environments, sibling components, or services, and never cite where code
+or values were copied from; that context rots and leaks internals.
+
 ## Architecture
 
 ### The Rust pipeline (crates/)
@@ -93,6 +97,27 @@ Data flows **Source → DomainEvent → Correlator → Db (Postgres) + Redis**, 
   and the api; Postgres has two independent readers (the Rust writer + the Bun reader).
 - **`apps/crossscout`** - React/Vite explorer, consumes REST + WS through `@cross-scout/sdk`.
 - **`packages/sdk`** - shared TS types + typed api client, imported by both api and explorer.
+
+### Crypto & EVM primitives (TypeScript)
+
+Reach for **viem** for every EVM/crypto concern in the TS layer (`apps/api`,
+`apps/crossscout`) - never hand-rolled equivalents. That covers unit conversion
+(`formatUnits` / `formatEther` / `parseUnits`), address handling (`getAddress` /
+`isAddress`), hashing (`keccak256`), hex + bytes (`toHex` / `fromHex` / `isHex` /
+`size`), and ABI encode/decode. viem is exact and battle-tested, so it replaces
+every ad-hoc bigint split, `toFixed`/`toExponential` formatter, manual checksum,
+or regex hex check.
+
+- Call viem directly at the use site; do **not** wrap it in one-line helpers
+  (`weiToEth`, `baseUnitsToNumber`, …).
+- Values arrive as valid strings from the DTOs, so `BigInt(x)` / `getAddress(x)`
+  are trusted - no defensive `try/catch` that swallows to a zero/empty fallback;
+  a malformed value should surface, not be hidden.
+- viem formatting never emits scientific notation, so amounts render as
+  `0.0000561`, not `5.61e-5`.
+- USD is a presentation-only concern applied at serve time
+  (`apps/api/src/pricing.ts`, from the `TOKEN_USD_PRICES` env map); the Rust
+  indexer stays price-agnostic and never carries fiat.
 
 ## Cross-cutting invariants (respect these when editing)
 

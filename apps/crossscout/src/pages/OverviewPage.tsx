@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatEther } from 'viem';
 import type { ActivityPoint, AssetVolume, NetworkStats, RouteVolume, Superblock, Xt } from '@cross-scout/sdk';
 import { AreaChart } from '../components/AreaChart';
 import type { FlowMode } from '../components/FlowChart';
@@ -10,7 +11,7 @@ import { TopAssets } from '../components/TopAssets';
 import type { AnalyticsWindow } from '../lib/api';
 import type { ChainView } from '../lib/chains';
 import { downloadRoutesCsv } from '../lib/csv';
-import { chainName, compactNumber, fmt, weiToEth } from '../lib/format';
+import { chainName, compactNumber, fmt } from '../lib/format';
 import type { Network } from '../lib/nav';
 import { Button } from '../ui/Button';
 
@@ -138,7 +139,7 @@ export function OverviewPage({
       <AreaChart
         points={activity.map((point) => ({
           ts: point.bucket,
-          value: metric === 'transactions' ? point.count : weiToEth(point.volumeWei),
+          value: metric === 'transactions' ? point.count : Number(formatEther(BigInt(point.volumeWei))),
         }))}
         formatValue={(value) =>
           metric === 'transactions' ? fmt(value) : `${compactNumber(value)} ETH`

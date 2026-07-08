@@ -35,6 +35,13 @@ export const STAGE_NAMES = [
 /** The terminal rollback stage (`xts.stage = 255`). */
 export const STAGE_ROLLED_BACK = 255;
 
+export interface TxFee {
+  gasUsed: string;
+  effectiveGasPriceWei: string;
+  feeWei: string;
+  feeUsd: string | null;
+}
+
 export interface Xt {
   xtHash: string;
   srcChain: number | null;
@@ -45,6 +52,7 @@ export interface Xt {
   label: string | null;
   srcTxHash: string | null;
   valueWei: string | null;
+  valueUsd: string | null;
   status: XtStatus;
   stage: number;
   superblockNumber: number | null;
@@ -81,6 +89,7 @@ export interface MailboxMessage {
   blockHash: string;
   logIndex: number;
   txHash: string | null;
+  txFee: TxFee | null;
   ts: string;
 }
 
@@ -104,6 +113,7 @@ export interface Superblock {
   proveMs: number | null;
   l1Tx: string | null;
   l1Block: number | null;
+  l1TxFee: TxFee | null;
   proposedAt: string | null;
   validatedAt: string | null;
   finalizedAt: string | null;
@@ -116,6 +126,7 @@ export interface Transfer {
   kind: 'eth' | 'erc20';
   token: string | null;
   amount: string;
+  amountUsd: string | null;
   srcChain: number;
   dstChain: number;
   sender: string;

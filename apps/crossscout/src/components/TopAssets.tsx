@@ -1,17 +1,10 @@
 import { useEffect, useState } from 'react';
+import { formatEther, formatUnits } from 'viem';
 import type { ActivityPoint, AssetVolume } from '@cross-scout/sdk';
 import { api } from '../lib/api';
 import type { ChainView } from '../lib/chains';
 import { chainView } from '../lib/chains';
-import {
-  baseUnitsToNumber,
-  compactNumber,
-  fmt,
-  formatEthCompact,
-  formatTokenAmount,
-  shortHex,
-  weiToEth,
-} from '../lib/format';
+import { compactNumber, fmt, formatEthCompact, formatTokenAmount, shortHex } from '../lib/format';
 import { AreaChart } from './AreaChart';
 import { ChainStack, EmptyPanel } from './primitives';
 
@@ -133,8 +126,8 @@ export function TopAssets({
           points={series.map((point) => ({
             ts: point.bucket,
             value: active?.token
-              ? baseUnitsToNumber(point.volumeWei, active.token.decimals)
-              : weiToEth(point.volumeWei),
+              ? Number(formatUnits(BigInt(point.volumeWei), active.token.decimals ?? 18))
+              : Number(formatEther(BigInt(point.volumeWei))),
           }))}
           formatValue={formatSeriesValue}
           empty={seriesLoading ? 'loading asset activity...' : 'no activity for this asset in the window'}

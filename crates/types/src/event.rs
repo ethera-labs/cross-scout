@@ -24,6 +24,8 @@ pub struct EventMeta {
     pub block_hash: B256,
     pub log_index: i32,
     pub tx_hash: Option<B256>,
+    pub gas_used: Option<U256>,
+    pub effective_gas_price_wei: Option<U256>,
     pub timestamp: DateTime<Utc>,
     pub safe: bool,
 }

@@ -11,11 +11,12 @@
 
 use cross_scout_types::{
     ActivityPoint, AssetVolume, Instance, MailboxMessage, NetworkStats, PeriodInfo,
-    PublisherSnapshot, Stage, StreamEvent, Superblock, TokenMeta, Transfer, Xt, XtDetail, XtPage,
+    PublisherSnapshot, Stage, StreamEvent, Superblock, TokenMeta, Transfer, TxFee, Xt, XtDetail,
+    XtPage,
 };
 use ts_rs::TS;
 
-const OUT_DIR: &str = "../../packages/sdk/src/generated";
+const OUT_DIR: &str = "packages/sdk/src/generated";
 
 fn main() -> Result<(), ts_rs::ExportError> {
     // `export_all_to` walks each type's dependency graph, so exporting the
@@ -26,6 +27,7 @@ fn main() -> Result<(), ts_rs::ExportError> {
     Instance::export_all_to(OUT_DIR)?;
     MailboxMessage::export_all_to(OUT_DIR)?;
     Superblock::export_all_to(OUT_DIR)?;
+    TxFee::export_all_to(OUT_DIR)?;
     NetworkStats::export_all_to(OUT_DIR)?;
     StreamEvent::export_all_to(OUT_DIR)?;
     Stage::export_all_to(OUT_DIR)?;

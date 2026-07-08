@@ -13,12 +13,31 @@ import type {
   SuperblockChain,
   TokenMeta,
   Transfer,
+  TxFee,
   Xt,
 } from '@cross-scout/sdk';
 import { numberArray, numOrNull, pgIntArray, toHex, toIso, toIsoOrNull } from './convert.ts';
 
 // Rows are dynamically shaped; `any` here is deliberate and contained.
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+function decimalString(v: unknown): string | null {
+  if (v == null) return null;
+  return String(v).split('.')[0] ?? null;
+}
+
+export function toTxFee(
+  gasUsed: unknown,
+  effectiveGasPriceWei: unknown,
+  feeWei: unknown,
+  feeUsd: string | null = null,
+): TxFee | null {
+  const gas = decimalString(gasUsed);
+  const price = decimalString(effectiveGasPriceWei);
+  const fee = decimalString(feeWei);
+  if (gas == null || price == null || fee == null) return null;
+  return { gasUsed: gas, effectiveGasPriceWei: price, feeWei: fee, feeUsd };
+}
 
 export function toXt(r: any): Xt {
   return {
@@ -31,6 +50,7 @@ export function toXt(r: any): Xt {
     label: r.label ?? null,
     srcTxHash: toHex(r.src_tx_hash),
     valueWei: r.value_wei != null ? String(r.value_wei) : null,
+    valueUsd: null,
     status: r.status,
     stage: Number(r.stage),
     superblockNumber: numOrNull(r.superblock_number),
@@ -71,6 +91,7 @@ export function toMailbox(r: any): MailboxMessage {
     blockHash: toHex(r.block_hash)!,
     logIndex: Number(r.log_index),
     txHash: toHex(r.tx_hash),
+    txFee: toTxFee(r.gas_used, r.effective_gas_price_wei, r.fee_wei),
     ts: toIso(r.ts),
   };
 }
@@ -98,6 +119,7 @@ export function toSuperblock(r: any, chains: SuperblockChain[]): Superblock {
     proveMs: numOrNull(r.prove_ms),
     l1Tx: toHex(r.l1_tx),
     l1Block: numOrNull(r.l1_block),
+    l1TxFee: toTxFee(r.l1_gas_used, r.l1_effective_gas_price_wei, r.l1_fee_wei),
     proposedAt: toIsoOrNull(r.proposed_at),
     validatedAt: toIsoOrNull(r.validated_at),
     finalizedAt: toIsoOrNull(r.finalized_at),
@@ -112,6 +134,7 @@ export function toTransfer(r: any): Transfer {
     kind: r.kind,
     token: toHex(r.token),
     amount: String(r.amount),
+    amountUsd: null,
     srcChain: Number(r.src_chain),
     dstChain: Number(r.dst_chain),
     sender: toHex(r.sender)!,

@@ -234,6 +234,8 @@ impl Correlator {
                         block_hash: &meta.block_hash,
                         log_index: meta.log_index,
                         tx_hash: meta.tx_hash.as_ref(),
+                        gas_used: meta.gas_used.as_ref(),
+                        effective_gas_price_wei: meta.effective_gas_price_wei.as_ref(),
                         ts,
                     })
                     .await?;
@@ -270,6 +272,8 @@ impl Correlator {
                         parent_hash,
                         game_address,
                         meta.tx_hash.as_ref(),
+                        meta.gas_used.as_ref(),
+                        meta.effective_gas_price_wei.as_ref(),
                         meta.block_number,
                         ts,
                     )

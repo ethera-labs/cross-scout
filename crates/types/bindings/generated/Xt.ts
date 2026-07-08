@@ -9,7 +9,7 @@ export type Xt = { xtHash: string, srcChain: number | null, dstChain: number | n
  * Native-ETH value in wei, decimal string (wei can exceed 2^53). Token
  * transfers never populate this - their amounts live on `Transfer`.
  */
-valueWei: string | null, status: XtStatus, 
+valueWei: string | null, valueUsd: string | null, status: XtStatus,
 /**
  * Lifecycle stage, 1..=9 or the terminal 255.
  */

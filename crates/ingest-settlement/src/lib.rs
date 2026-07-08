@@ -19,7 +19,7 @@ use alloy::sol;
 use alloy::sol_types::{SolCall, SolEvent, SolValue};
 use async_trait::async_trait;
 use cross_scout_ingest_el::chain_i32;
-use cross_scout_ingest_el::evm::{meta_of, poll_logs, topic0, LogDecoder, PollConfig};
+use cross_scout_ingest_el::evm::{meta_with_receipt, poll_logs, topic0, LogDecoder, PollConfig};
 use cross_scout_types::event::ChainTransition;
 use cross_scout_types::{
     DomainEvent, EventKind, EventMeta, EventSink, SinkClosed, Source, SourceError,
@@ -181,7 +181,10 @@ impl LogDecoder for SettlementDecoder {
 
         match decode_create_calldata(tx.input(), self.game_type, created.disputeProxy) {
             Some(kind) if self.accepts(&kind) => {
-                vec![DomainEvent::new(meta_of(self.chain_id, log, true), kind)]
+                vec![DomainEvent::new(
+                    meta_with_receipt(provider, self.chain_id, log, true).await,
+                    kind,
+                )]
             }
             Some(_) => {
                 debug!(%tx_hash, "superblock is outside configured rollup chain set; skipping");
@@ -314,6 +317,8 @@ impl Source for AnchorSource {
                                 block_hash: anchor_event_hash(number),
                                 log_index: 0,
                                 tx_hash: None,
+                                gas_used: None,
+                                effective_gas_price_wei: None,
                                 timestamp: chrono::Utc::now(),
                                 safe: true,
                             },

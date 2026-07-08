@@ -132,6 +132,8 @@ fn frame_to_events(chain_id: i32, bridges: &[Address], fb: &FlashblockFrame) -> 
                 // idempotency key stays unique within the sealing block.
                 log_index: (fb.index * 1000 + i as u64) as i32,
                 tx_hash: Some(*env.tx_hash()),
+                gas_used: None,
+                effective_gas_price_wei: None,
                 timestamp: now,
                 safe: false,
             },

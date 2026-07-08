@@ -1,11 +1,17 @@
-// CrossScout api - Bun server: Hono for REST, native Bun WebSocket for the
-// live stream at /v1/stream.
+// CrossScout server - Bun serves the REST + WebSocket api (Hono) and the
+// built explorer SPA from a single port.
 
 import app, { HOST_CHAIN } from './routes.ts';
+import { serveStatic } from './static.ts';
 import { startStream, WS_TOPIC } from './stream.ts';
 
 const port = Number(process.env.API_PORT ?? 3001);
 const hostname = process.env.API_HOST ?? '0.0.0.0';
+
+function isApiPath(pathname: string): boolean {
+  return pathname === '/health' || pathname === '/ready' || pathname === '/v1' ||
+    pathname.startsWith('/v1/');
+}
 
 const server = Bun.serve({
   port,
@@ -17,7 +23,8 @@ const server = Bun.serve({
       if (srv.upgrade(req)) return undefined;
       return new Response('expected websocket upgrade', { status: 426 });
     }
-    return app.fetch(req, { server: srv });
+    if (isApiPath(url.pathname)) return app.fetch(req, { server: srv });
+    return serveStatic(req);
   },
   websocket: {
     open(ws) {
@@ -35,5 +42,5 @@ const server = Bun.serve({
 startStream(server);
 
 console.log(
-  `crossscout api → http://${hostname}:${port}  (host chain ${HOST_CHAIN}, ws /v1/stream)`,
+  `crossscout → http://${hostname}:${port}  (host chain ${HOST_CHAIN}, api /v1, ws /v1/stream)`,
 );

@@ -10,9 +10,9 @@
 //! pulls in the ts-rs export surface.
 
 use cross_scout_types::{
-    ActivityPoint, AssetVolume, Instance, MailboxMessage, NetworkStats, PeriodInfo,
-    PublisherSnapshot, Stage, StreamEvent, Superblock, TokenMeta, Transfer, TxFee, Xt, XtDetail,
-    XtPage,
+    ActivityPoint, AssetVolume, Deposit, DepositPage, Instance, MailboxMessage, NetworkStats,
+    PeriodInfo, PublisherSnapshot, Stage, StreamEvent, Superblock, TokenMeta, Transfer, TxFee,
+    Withdrawal, WithdrawalPage, Xt, XtDetail, XtPage,
 };
 use ts_rs::TS;
 
@@ -32,6 +32,10 @@ fn main() -> Result<(), ts_rs::ExportError> {
     StreamEvent::export_all_to(OUT_DIR)?;
     Stage::export_all_to(OUT_DIR)?;
     Transfer::export_all_to(OUT_DIR)?;
+    Deposit::export_all_to(OUT_DIR)?;
+    DepositPage::export_all_to(OUT_DIR)?;
+    Withdrawal::export_all_to(OUT_DIR)?;
+    WithdrawalPage::export_all_to(OUT_DIR)?;
     TokenMeta::export_all_to(OUT_DIR)?;
     ActivityPoint::export_all_to(OUT_DIR)?;
     AssetVolume::export_all_to(OUT_DIR)?;

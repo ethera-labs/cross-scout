@@ -143,6 +143,66 @@ pub struct TransferInsert<'a> {
     pub ts: DateTime<Utc>,
 }
 
+/// L1 portal `TransactionDeposited` observation.
+pub struct DepositInsert<'a> {
+    pub source_hash: &'a B256,
+    pub l2_chain_id: i32,
+    pub sender: &'a Address,
+    pub receiver: &'a Address,
+    pub mint: &'a U256,
+    pub value: &'a U256,
+    pub gas_limit: u64,
+    pub is_creation: bool,
+    pub l1_chain_id: i32,
+    pub l1_block_number: i64,
+    pub l1_block_hash: &'a B256,
+    pub l1_log_index: i32,
+    pub l1_tx_hash: Option<&'a B256>,
+    pub ts: DateTime<Utc>,
+}
+
+/// L2 `MessagePassed` withdrawal initiation.
+pub struct WithdrawalInitiatedInsert<'a> {
+    pub withdrawal_hash: &'a B256,
+    pub l2_chain_id: i32,
+    pub nonce: &'a U256,
+    pub sender: &'a Address,
+    pub target: &'a Address,
+    pub value: &'a U256,
+    pub gas_limit: &'a U256,
+    pub chain_id: i32,
+    pub block_number: i64,
+    pub block_hash: &'a B256,
+    pub log_index: i32,
+    pub tx_hash: Option<&'a B256>,
+    pub ts: DateTime<Utc>,
+}
+
+/// L1 portal `WithdrawalProven` observation.
+pub struct WithdrawalProvenInsert<'a> {
+    pub withdrawal_hash: &'a B256,
+    pub l2_chain_id: i32,
+    pub l1_chain_id: i32,
+    pub l1_block_number: i64,
+    pub l1_block_hash: &'a B256,
+    pub l1_log_index: i32,
+    pub l1_tx_hash: Option<&'a B256>,
+    pub ts: DateTime<Utc>,
+}
+
+/// L1 portal `WithdrawalFinalized` observation.
+pub struct WithdrawalFinalizedInsert<'a> {
+    pub withdrawal_hash: &'a B256,
+    pub l2_chain_id: i32,
+    pub success: bool,
+    pub l1_chain_id: i32,
+    pub l1_block_number: i64,
+    pub l1_block_hash: &'a B256,
+    pub l1_log_index: i32,
+    pub l1_tx_hash: Option<&'a B256>,
+    pub ts: DateTime<Utc>,
+}
+
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Address, B256};

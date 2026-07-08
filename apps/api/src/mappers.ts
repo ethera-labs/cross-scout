@@ -5,6 +5,7 @@
 import type {
   ActivityPoint,
   AssetVolume,
+  Deposit,
   Instance,
   MailboxMessage,
   PeriodInfo,
@@ -14,6 +15,7 @@ import type {
   TokenMeta,
   Transfer,
   TxFee,
+  Withdrawal,
   Xt,
 } from '@cross-scout/sdk';
 import { numberArray, numOrNull, pgIntArray, toHex, toIso, toIsoOrNull } from './convert.ts';
@@ -144,6 +146,52 @@ export function toTransfer(r: any): Transfer {
     txHash: toHex(r.tx_hash),
     safe: Boolean(r.safe),
     ts: toIso(r.ts),
+  };
+}
+
+export function toDeposit(r: any): Deposit {
+  return {
+    sourceHash: toHex(r.source_hash)!,
+    l2ChainId: Number(r.l2_chain_id),
+    sender: toHex(r.sender)!,
+    receiver: toHex(r.receiver)!,
+    mintWei: String(r.mint_wei),
+    valueWei: String(r.value_wei),
+    gasLimit: String(r.gas_limit),
+    isCreation: Boolean(r.is_creation),
+    status: r.status,
+    l1ChainId: Number(r.l1_chain_id),
+    l1BlockNumber: Number(r.l1_block_number),
+    l1TxHash: toHex(r.l1_tx_hash),
+    initiatedAt: toIso(r.initiated_at),
+    updatedAt: toIso(r.updated_at),
+  };
+}
+
+export function toWithdrawal(r: any): Withdrawal {
+  return {
+    withdrawalHash: toHex(r.withdrawal_hash)!,
+    l2ChainId: Number(r.l2_chain_id),
+    nonce: r.nonce == null ? null : String(r.nonce),
+    sender: toHex(r.sender),
+    target: toHex(r.target),
+    valueWei: r.value_wei == null ? null : String(r.value_wei),
+    gasLimit: r.gas_limit == null ? null : String(r.gas_limit),
+    status: r.status,
+    finalizedSuccess: r.finalized_success == null ? null : Boolean(r.finalized_success),
+    initiatedChainId: numOrNull(r.initiated_chain_id),
+    initiatedBlockNumber: numOrNull(r.initiated_block_number),
+    initiatedTxHash: toHex(r.initiated_tx_hash),
+    initiatedAt: toIsoOrNull(r.initiated_at),
+    provenL1ChainId: numOrNull(r.proven_l1_chain_id),
+    provenL1BlockNumber: numOrNull(r.proven_l1_block_number),
+    provenL1TxHash: toHex(r.proven_l1_tx_hash),
+    provenAt: toIsoOrNull(r.proven_at),
+    finalizedL1ChainId: numOrNull(r.finalized_l1_chain_id),
+    finalizedL1BlockNumber: numOrNull(r.finalized_l1_block_number),
+    finalizedL1TxHash: toHex(r.finalized_l1_tx_hash),
+    finalizedAt: toIsoOrNull(r.finalized_at),
+    updatedAt: toIso(r.updated_at),
   };
 }
 

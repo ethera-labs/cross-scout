@@ -27,7 +27,10 @@ impl StreamKey<'_> {
     fn payload(&self) -> String {
         match self {
             Self::NewXt(h) => {
-                format!(r#"{{"kind":"newXt","id":"{}"}}"#, hex_prefixed(h.as_slice()))
+                format!(
+                    r#"{{"kind":"newXt","id":"{}"}}"#,
+                    hex_prefixed(h.as_slice())
+                )
             }
             Self::XtUpdated(h) => {
                 format!(

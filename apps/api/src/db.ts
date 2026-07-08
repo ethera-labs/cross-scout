@@ -6,6 +6,8 @@ import { SQL } from 'bun';
 import type {
   ActivityPoint,
   AssetVolume,
+  Deposit,
+  DepositPage,
   Instance,
   MailboxView,
   NetworkStats,
@@ -14,6 +16,8 @@ import type {
   RouteVolume,
   SearchResponse,
   Superblock,
+  Withdrawal,
+  WithdrawalPage,
   XtDetail,
   XtPage,
 } from '@cross-scout/sdk';
@@ -29,6 +33,7 @@ import {
 import {
   toActivityPoint,
   toAssetVolume,
+  toDeposit,
   toInstance,
   toMailbox,
   toPeriod,
@@ -37,6 +42,7 @@ import {
   toSuperblockChain,
   toTokenMeta,
   toTransfer,
+  toWithdrawal,
   toXt,
 } from './mappers.ts';
 
@@ -86,6 +92,83 @@ export async function listXts(p: ListXtsQuery): Promise<XtPage> {
   const nextCursor =
     rows.length === limit && last ? `${toIso(last.updated_at)}|${toHex(last.xt_hash)}` : null;
   return { items: rows.map(toXt), nextCursor };
+}
+
+export interface ListBridgeOpsQuery {
+  status?: string;
+  chain?: number;
+  limit?: number;
+  cursor?: string;
+  address?: Uint8Array | null;
+}
+
+function cursorParts(cursor: string | undefined): [string | null, Uint8Array | null] {
+  const [cursorTsRaw, cursorHashRaw] = (cursor ?? '').split('|');
+  return [cursorTsRaw || null, cursorHashRaw ? fromHex(cursorHashRaw) : null];
+}
+
+export async function listDeposits(p: ListBridgeOpsQuery): Promise<DepositPage> {
+  const limit = Math.min(Math.max(p.limit ?? 50, 1), 200);
+  const status = p.status ?? null;
+  const chain = p.chain ?? null;
+  const address = p.address ?? null;
+  const [cursorTs, cursorHash] = cursorParts(p.cursor);
+
+  const rows = await sql`
+    select * from deposits
+    where (${status}::text is null or status = ${status})
+      and (${chain}::int is null or l2_chain_id = ${chain})
+      and (${address}::bytea is null or sender = ${address}::bytea or receiver = ${address}::bytea)
+      and (${cursorTs}::timestamptz is null
+           or updated_at < ${cursorTs}::timestamptz
+           or (updated_at = ${cursorTs}::timestamptz
+               and ${cursorHash}::bytea is not null and source_hash < ${cursorHash}::bytea))
+    order by updated_at desc, source_hash desc
+    limit ${limit}
+  `;
+
+  const last = rows[rows.length - 1];
+  const nextCursor =
+    rows.length === limit && last ? `${toIso(last.updated_at)}|${toHex(last.source_hash)}` : null;
+  return { items: rows.map(toDeposit), nextCursor };
+}
+
+export async function getDeposit(sourceHashHex: string): Promise<Deposit | null> {
+  const buf = fromHex(sourceHashHex);
+  const [row] = await sql`select * from deposits where source_hash = ${buf}`;
+  return row ? toDeposit(row) : null;
+}
+
+export async function listWithdrawals(p: ListBridgeOpsQuery): Promise<WithdrawalPage> {
+  const limit = Math.min(Math.max(p.limit ?? 50, 1), 200);
+  const status = p.status ?? null;
+  const chain = p.chain ?? null;
+  const address = p.address ?? null;
+  const [cursorTs, cursorHash] = cursorParts(p.cursor);
+
+  const rows = await sql`
+    select * from withdrawals
+    where (${status}::text is null or status = ${status})
+      and (${chain}::int is null or l2_chain_id = ${chain})
+      and (${address}::bytea is null or sender = ${address}::bytea or target = ${address}::bytea)
+      and (${cursorTs}::timestamptz is null
+           or updated_at < ${cursorTs}::timestamptz
+           or (updated_at = ${cursorTs}::timestamptz
+               and ${cursorHash}::bytea is not null and withdrawal_hash < ${cursorHash}::bytea))
+    order by updated_at desc, withdrawal_hash desc
+    limit ${limit}
+  `;
+
+  const last = rows[rows.length - 1];
+  const nextCursor =
+    rows.length === limit && last ? `${toIso(last.updated_at)}|${toHex(last.withdrawal_hash)}` : null;
+  return { items: rows.map(toWithdrawal), nextCursor };
+}
+
+export async function getWithdrawal(withdrawalHashHex: string): Promise<Withdrawal | null> {
+  const buf = fromHex(withdrawalHashHex);
+  const [row] = await sql`select * from withdrawals where withdrawal_hash = ${buf}`;
+  return row ? toWithdrawal(row) : null;
 }
 
 export async function getInstance(sessionHex: string): Promise<Instance | null> {
@@ -453,6 +536,18 @@ export async function search(query: string): Promise<SearchResponse> {
     // match xts by xt_hash
     const xtRows = await sql`select * from xts where xt_hash = ${buf} limit 5`;
     for (const r of xtRows) results.push({ type: 'xt', xt: toXt(r) });
+    if (results.length < 10) {
+      const deposits = await sql`
+        select * from deposits where source_hash = ${buf} limit ${10 - results.length}`;
+      for (const r of deposits) results.push({ type: 'deposit', deposit: toDeposit(r) });
+    }
+    if (results.length < 10) {
+      const withdrawals = await sql`
+        select * from withdrawals where withdrawal_hash = ${buf} limit ${10 - results.length}`;
+      for (const r of withdrawals) {
+        results.push({ type: 'withdrawal', withdrawal: toWithdrawal(r) });
+      }
+    }
     // match transfers/mailbox by tx_hash - return owning xts
     if (results.length < 10) {
       const fromTransfers = await sql`
@@ -478,11 +573,19 @@ export async function search(query: string): Promise<SearchResponse> {
     }
   } else if (/^0x[0-9a-fA-F]{40}$/.test(q)) {
     const buf = fromHex(q);
-    // address: count xts where sender/receiver matches
+    // address: count XTs plus direct bridge ops where sender/receiver matches
     const [addrCount] = await sql`
       select count(*)::int as n from xts where sender = ${buf} or receiver = ${buf}`;
-    if (addrCount && Number(addrCount.n) > 0) {
-      results.push({ type: 'address', address: q, xtCount: Number(addrCount.n) });
+    const [depositCount] = await sql`
+      select count(*)::int as n from deposits where sender = ${buf} or receiver = ${buf}`;
+    const [withdrawalCount] = await sql`
+      select count(*)::int as n from withdrawals where sender = ${buf} or target = ${buf}`;
+    const matchCount =
+      Number(addrCount?.n ?? 0) +
+      Number(depositCount?.n ?? 0) +
+      Number(withdrawalCount?.n ?? 0);
+    if (matchCount > 0) {
+      results.push({ type: 'address', address: q, xtCount: matchCount });
     }
     // token match
     if (results.length < 10) {

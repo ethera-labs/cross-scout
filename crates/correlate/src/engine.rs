@@ -10,7 +10,9 @@
 use alloy::primitives::B256;
 use chrono::{DateTime, Utc};
 use cross_scout_store::write::{
-    MailboxInsert, TransferInsert, XtIdentity, XtObservation, XtObservationEffect,
+    DepositInsert, MailboxInsert, TransferInsert, WithdrawalFinalizedInsert,
+    WithdrawalInitiatedInsert, WithdrawalProvenInsert, XtIdentity, XtObservation,
+    XtObservationEffect,
 };
 use cross_scout_store::{Db, StreamKey, StreamNotifier};
 use cross_scout_types::{DomainEvent, EventKind};
@@ -229,6 +231,102 @@ impl Correlator {
 
             // Short-circuited before the raw-event journal above.
             EventKind::BlockSealed { .. } => {}
+
+            EventKind::DepositInitiated {
+                source_hash,
+                l2_chain_id,
+                sender,
+                receiver,
+                mint,
+                value,
+                gas_limit,
+                is_creation,
+            } => {
+                self.db
+                    .upsert_deposit_initiated(DepositInsert {
+                        source_hash,
+                        l2_chain_id: *l2_chain_id,
+                        sender,
+                        receiver,
+                        mint,
+                        value,
+                        gas_limit: *gas_limit,
+                        is_creation: *is_creation,
+                        l1_chain_id: meta.chain_id,
+                        l1_block_number: meta.block_number,
+                        l1_block_hash: &meta.block_hash,
+                        l1_log_index: meta.log_index,
+                        l1_tx_hash: meta.tx_hash.as_ref(),
+                        ts,
+                    })
+                    .await?;
+            }
+
+            EventKind::WithdrawalInitiated {
+                withdrawal_hash,
+                l2_chain_id,
+                nonce,
+                sender,
+                target,
+                value,
+                gas_limit,
+            } => {
+                self.db
+                    .upsert_withdrawal_initiated(WithdrawalInitiatedInsert {
+                        withdrawal_hash,
+                        l2_chain_id: *l2_chain_id,
+                        nonce,
+                        sender,
+                        target,
+                        value,
+                        gas_limit,
+                        chain_id: meta.chain_id,
+                        block_number: meta.block_number,
+                        block_hash: &meta.block_hash,
+                        log_index: meta.log_index,
+                        tx_hash: meta.tx_hash.as_ref(),
+                        ts,
+                    })
+                    .await?;
+            }
+
+            EventKind::WithdrawalProven {
+                withdrawal_hash,
+                l2_chain_id,
+            } => {
+                self.db
+                    .mark_withdrawal_proven(WithdrawalProvenInsert {
+                        withdrawal_hash,
+                        l2_chain_id: *l2_chain_id,
+                        l1_chain_id: meta.chain_id,
+                        l1_block_number: meta.block_number,
+                        l1_block_hash: &meta.block_hash,
+                        l1_log_index: meta.log_index,
+                        l1_tx_hash: meta.tx_hash.as_ref(),
+                        ts,
+                    })
+                    .await?;
+            }
+
+            EventKind::WithdrawalFinalized {
+                withdrawal_hash,
+                l2_chain_id,
+                success,
+            } => {
+                self.db
+                    .mark_withdrawal_finalized(WithdrawalFinalizedInsert {
+                        withdrawal_hash,
+                        l2_chain_id: *l2_chain_id,
+                        success: *success,
+                        l1_chain_id: meta.chain_id,
+                        l1_block_number: meta.block_number,
+                        l1_block_hash: &meta.block_hash,
+                        l1_log_index: meta.log_index,
+                        l1_tx_hash: meta.tx_hash.as_ref(),
+                        ts,
+                    })
+                    .await?;
+            }
 
             EventKind::SuperblockProposed {
                 number,

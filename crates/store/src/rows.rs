@@ -6,8 +6,9 @@ use crate::convert::*;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use cross_scout_types::{
-    Decision, Direction, Instance, MailboxMessage, Superblock, SuperblockChain, SuperblockStatus,
-    TokenMeta, Transfer, TxFee, Xt, XtStatus,
+    Decision, Deposit, DepositStatus, Direction, Instance, MailboxMessage, Superblock,
+    SuperblockChain, SuperblockStatus, TokenMeta, Transfer, TxFee, Withdrawal, WithdrawalStatus,
+    Xt, XtStatus,
 };
 
 fn xt_status(s: &str) -> XtStatus {
@@ -40,6 +41,19 @@ fn superblock_status(s: &str) -> SuperblockStatus {
         "validated" => SuperblockStatus::Validated,
         "finalized" => SuperblockStatus::Finalized,
         _ => SuperblockStatus::Proposed,
+    }
+}
+
+fn deposit_status(_s: &str) -> DepositStatus {
+    DepositStatus::Initiated
+}
+
+fn withdrawal_status(s: &str) -> WithdrawalStatus {
+    match s {
+        "proven" => WithdrawalStatus::Proven,
+        "finalized" => WithdrawalStatus::Finalized,
+        "finalized_failed" => WithdrawalStatus::FinalizedFailed,
+        _ => WithdrawalStatus::Initiated,
     }
 }
 
@@ -210,6 +224,100 @@ impl TransferRow {
             tx_hash: opt_hex(&self.tx_hash),
             safe: self.safe,
             ts: rfc3339(&self.ts),
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct DepositRow {
+    pub source_hash: Vec<u8>,
+    pub l2_chain_id: i32,
+    pub sender: Vec<u8>,
+    pub receiver: Vec<u8>,
+    pub mint_wei: BigDecimal,
+    pub value_wei: BigDecimal,
+    pub gas_limit: BigDecimal,
+    pub is_creation: bool,
+    pub status: String,
+    pub l1_chain_id: i32,
+    pub l1_block_number: i64,
+    pub l1_tx_hash: Option<Vec<u8>>,
+    pub initiated_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl DepositRow {
+    pub fn into_dto(self) -> Deposit {
+        Deposit {
+            source_hash: hex_prefixed(&self.source_hash),
+            l2_chain_id: self.l2_chain_id,
+            sender: hex_prefixed(&self.sender),
+            receiver: hex_prefixed(&self.receiver),
+            mint_wei: decimal_string(&self.mint_wei),
+            value_wei: decimal_string(&self.value_wei),
+            gas_limit: decimal_string(&self.gas_limit),
+            is_creation: self.is_creation,
+            status: deposit_status(&self.status),
+            l1_chain_id: self.l1_chain_id,
+            l1_block_number: self.l1_block_number,
+            l1_tx_hash: opt_hex(&self.l1_tx_hash),
+            initiated_at: rfc3339(&self.initiated_at),
+            updated_at: rfc3339(&self.updated_at),
+        }
+    }
+}
+
+#[derive(sqlx::FromRow)]
+pub struct WithdrawalRow {
+    pub withdrawal_hash: Vec<u8>,
+    pub l2_chain_id: i32,
+    pub nonce: Option<BigDecimal>,
+    pub sender: Option<Vec<u8>>,
+    pub target: Option<Vec<u8>>,
+    pub value_wei: Option<BigDecimal>,
+    pub gas_limit: Option<BigDecimal>,
+    pub status: String,
+    pub finalized_success: Option<bool>,
+    pub initiated_chain_id: Option<i32>,
+    pub initiated_block_number: Option<i64>,
+    pub initiated_tx_hash: Option<Vec<u8>>,
+    pub initiated_at: Option<DateTime<Utc>>,
+    pub proven_l1_chain_id: Option<i32>,
+    pub proven_l1_block_number: Option<i64>,
+    pub proven_l1_tx_hash: Option<Vec<u8>>,
+    pub proven_at: Option<DateTime<Utc>>,
+    pub finalized_l1_chain_id: Option<i32>,
+    pub finalized_l1_block_number: Option<i64>,
+    pub finalized_l1_tx_hash: Option<Vec<u8>>,
+    pub finalized_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl WithdrawalRow {
+    pub fn into_dto(self) -> Withdrawal {
+        Withdrawal {
+            withdrawal_hash: hex_prefixed(&self.withdrawal_hash),
+            l2_chain_id: self.l2_chain_id,
+            nonce: self.nonce.as_ref().map(decimal_string),
+            sender: opt_hex(&self.sender),
+            target: opt_hex(&self.target),
+            value_wei: self.value_wei.as_ref().map(decimal_string),
+            gas_limit: self.gas_limit.as_ref().map(decimal_string),
+            status: withdrawal_status(&self.status),
+            finalized_success: self.finalized_success,
+            initiated_chain_id: self.initiated_chain_id,
+            initiated_block_number: self.initiated_block_number,
+            initiated_tx_hash: opt_hex(&self.initiated_tx_hash),
+            initiated_at: opt_rfc3339(&self.initiated_at),
+            proven_l1_chain_id: self.proven_l1_chain_id,
+            proven_l1_block_number: self.proven_l1_block_number,
+            proven_l1_tx_hash: opt_hex(&self.proven_l1_tx_hash),
+            proven_at: opt_rfc3339(&self.proven_at),
+            finalized_l1_chain_id: self.finalized_l1_chain_id,
+            finalized_l1_block_number: self.finalized_l1_block_number,
+            finalized_l1_tx_hash: opt_hex(&self.finalized_l1_tx_hash),
+            finalized_at: opt_rfc3339(&self.finalized_at),
+            updated_at: rfc3339(&self.updated_at),
         }
     }
 }

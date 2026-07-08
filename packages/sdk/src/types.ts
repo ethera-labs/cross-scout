@@ -12,6 +12,8 @@ export type XtStatus = 'pending' | 'committed' | 'validated' | 'finalized' | 'fa
 export type Decision = 'pending' | 'commit' | 'abort';
 export type Direction = 'in' | 'out';
 export type SuperblockStatus = 'proposed' | 'validated' | 'finalized';
+export type DepositStatus = 'initiated';
+export type WithdrawalStatus = 'initiated' | 'proven' | 'finalized' | 'finalized_failed';
 
 /**
  * Human-readable lifecycle stage names, indexed by the numeric `stage` (1..9).
@@ -138,6 +140,58 @@ export interface Transfer {
   ts: string;
 }
 
+export interface Deposit {
+  sourceHash: string;
+  l2ChainId: number;
+  sender: string;
+  receiver: string;
+  mintWei: string;
+  valueWei: string;
+  gasLimit: string;
+  isCreation: boolean;
+  status: DepositStatus;
+  l1ChainId: number;
+  l1BlockNumber: number;
+  l1TxHash: string | null;
+  initiatedAt: string;
+  updatedAt: string;
+}
+
+export interface Withdrawal {
+  withdrawalHash: string;
+  l2ChainId: number;
+  nonce: string | null;
+  sender: string | null;
+  target: string | null;
+  valueWei: string | null;
+  gasLimit: string | null;
+  status: WithdrawalStatus;
+  finalizedSuccess: boolean | null;
+  initiatedChainId: number | null;
+  initiatedBlockNumber: number | null;
+  initiatedTxHash: string | null;
+  initiatedAt: string | null;
+  provenL1ChainId: number | null;
+  provenL1BlockNumber: number | null;
+  provenL1TxHash: string | null;
+  provenAt: string | null;
+  finalizedL1ChainId: number | null;
+  finalizedL1BlockNumber: number | null;
+  finalizedL1TxHash: string | null;
+  finalizedAt: string | null;
+  updatedAt: string;
+}
+
+export interface DepositPage {
+  items: Deposit[];
+  nextCursor: string | null;
+}
+
+export interface WithdrawalPage {
+  items: Withdrawal[];
+  nextCursor: string | null;
+}
+
 export interface TokenMeta {
   chainId: number;
   address: string;
@@ -258,6 +312,8 @@ export interface NetworkView {
 export type SearchResult =
   | { type: 'xt'; xt: Xt }
   | { type: 'superblock'; superblock: Superblock }
+  | { type: 'deposit'; deposit: Deposit }
+  | { type: 'withdrawal'; withdrawal: Withdrawal }
   | { type: 'address'; address: string; xtCount: number }
   | { type: 'token'; token: TokenMeta };
 

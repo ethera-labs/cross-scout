@@ -3,6 +3,9 @@
 //! stream) per participating rollup, plus the L1 settlement taps.
 
 use alloy::primitives::Address;
+use cross_scout_ingest_bridge::{
+    L1PortalSource, L1PortalSourceConfig, L2BridgeSource, PortalEndpoint,
+};
 use cross_scout_ingest_el::ElSource;
 use cross_scout_ingest_flashblocks::FlashblocksSource;
 use cross_scout_ingest_settlement::{AnchorSource, SettlementSource, SettlementSourceConfig};
@@ -29,6 +32,13 @@ pub fn build_sources(cfg: &Config) -> Vec<Box<dyn Source>> {
             ep.url.clone(),
             cfg.mailbox_address,
             cfg.bridge_addresses.clone(),
+            cfg.el_start_block,
+            cfg.poll_interval_ms,
+            cfg.log_max_range,
+        )));
+        sources.push(Box::new(L2BridgeSource::new(
+            ep.chain_id,
+            ep.url.clone(),
             cfg.el_start_block,
             cfg.poll_interval_ms,
             cfg.log_max_range,
@@ -70,6 +80,26 @@ pub fn build_sources(cfg: &Config) -> Vec<Box<dyn Source>> {
             registry,
             cfg.poll_interval_ms,
         )));
+    }
+
+    if cfg.portal_addresses.is_empty() {
+        warn!("PORTAL_ADDRESSES unset - deposits and L1 withdrawal legs will not be tracked");
+    } else {
+        sources.push(Box::new(L1PortalSource::new(L1PortalSourceConfig {
+            l1_chain_id: cfg.l1_chain_id,
+            l1_rpc_url: cfg.l1_rpc_url.clone(),
+            portals: cfg
+                .portal_addresses
+                .iter()
+                .map(|endpoint| PortalEndpoint {
+                    l2_chain_id: endpoint.chain_id,
+                    address: endpoint.address,
+                })
+                .collect(),
+            start_block: cfg.l1_start_block,
+            poll_ms: cfg.poll_interval_ms,
+            max_range: cfg.log_max_range,
+        })));
     }
 
     sources

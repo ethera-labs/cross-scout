@@ -54,6 +54,13 @@ pub struct ChainEndpoint {
     pub url: String,
 }
 
+/// One `chain_id=address` endpoint.
+#[derive(Clone, Debug)]
+pub struct ChainAddress {
+    pub chain_id: i32,
+    pub address: Address,
+}
+
 /// Comma-separated `<chain_id>=<url>` pairs, one per participating rollup.
 fn endpoint_list(key: &str) -> Vec<ChainEndpoint> {
     env::var(key)
@@ -64,6 +71,21 @@ fn endpoint_list(key: &str) -> Vec<ChainEndpoint> {
             Some(ChainEndpoint {
                 chain_id: chain.trim().parse().ok()?,
                 url: url.trim().to_string(),
+            })
+        })
+        .collect()
+}
+
+/// Comma-separated `<chain_id>=<0xaddress>` pairs.
+fn chain_address_list(key: &str) -> Vec<ChainAddress> {
+    env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|pair| {
+            let (chain, address) = pair.trim().split_once('=')?;
+            Some(ChainAddress {
+                chain_id: chain.trim().parse().ok()?,
+                address: address.trim().parse().ok()?,
             })
         })
         .collect()
@@ -100,6 +122,9 @@ pub struct Config {
     pub dispute_game_factory: Address,
     /// L1 `ComposeAnchorStateRegistry`; unset disables finalization tracking.
     pub anchor_state_registry: Option<Address>,
+    /// Per-rollup L1 `OptimismPortal` proxies used for deposits and L1
+    /// withdrawal lifecycle events.
+    pub portal_addresses: Vec<ChainAddress>,
     /// Compose dispute game type (publisher's `COMPOSE_GAME_TYPE`).
     pub game_type: u32,
 
@@ -132,6 +157,7 @@ impl Config {
             bridge_addresses: addr_list("BRIDGE_ADDRESSES"),
             dispute_game_factory: addr("DISPUTE_GAME_FACTORY_ADDRESS"),
             anchor_state_registry: opt_addr("ANCHOR_STATE_REGISTRY_ADDRESS"),
+            portal_addresses: chain_address_list("PORTAL_ADDRESSES"),
             game_type: parse("COMPOSE_GAME_TYPE", 5555),
             el_start_block: start_block("EL_START_BLOCK"),
             l1_start_block: start_block("L1_START_BLOCK"),

@@ -34,14 +34,14 @@ pub fn build_sources(cfg: &Config) -> Vec<Box<dyn Source>> {
             cfg.bridge_addresses.clone(),
             cfg.el_start_block,
             cfg.poll_interval_ms,
-            cfg.log_max_range,
+            cfg.eth_get_logs_max_blocks,
         )));
         sources.push(Box::new(L2BridgeSource::new(
             ep.chain_id,
             ep.url.clone(),
             cfg.el_start_block,
             cfg.poll_interval_ms,
-            cfg.log_max_range,
+            cfg.eth_get_logs_max_blocks,
         )));
     }
 
@@ -68,7 +68,7 @@ pub fn build_sources(cfg: &Config) -> Vec<Box<dyn Source>> {
                 .collect(),
             start_block: cfg.l1_start_block,
             poll_ms: cfg.poll_interval_ms,
-            max_range: cfg.log_max_range,
+            max_range: cfg.eth_get_logs_max_blocks,
         })));
     } else {
         warn!("DISPUTE_GAME_FACTORY_ADDRESS unset - superblock settlement will not be tracked");
@@ -98,7 +98,7 @@ pub fn build_sources(cfg: &Config) -> Vec<Box<dyn Source>> {
                 .collect(),
             start_block: cfg.l1_start_block,
             poll_ms: cfg.poll_interval_ms,
-            max_range: cfg.log_max_range,
+            max_range: cfg.eth_get_logs_max_blocks,
         })));
     }
 

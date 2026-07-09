@@ -3,6 +3,11 @@
 use alloy::primitives::Address;
 use std::env;
 
+const DEFAULT_COMPOSE_GAME_TYPE: u32 = 5555;
+const DEFAULT_POLL_INTERVAL_MS: u64 = 1_000;
+const DEFAULT_ETH_GET_LOGS_MAX_BLOCKS: u64 = 2_000;
+const DEFAULT_DB_MAX_CONNS: u32 = 10;
+
 fn var(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
 }
@@ -133,7 +138,7 @@ pub struct Config {
     pub l1_start_block: Option<u64>,
     pub poll_interval_ms: u64,
     /// Max blocks per `eth_getLogs` call.
-    pub log_max_range: u64,
+    pub eth_get_logs_max_blocks: u64,
     /// Seconds before an XT without a sealed inclusion is rolled back.
     pub stall_timeout_secs: i64,
 
@@ -158,13 +163,16 @@ impl Config {
             dispute_game_factory: addr("DISPUTE_GAME_FACTORY_ADDRESS"),
             anchor_state_registry: opt_addr("ANCHOR_STATE_REGISTRY_ADDRESS"),
             portal_addresses: chain_address_list("PORTAL_ADDRESSES"),
-            game_type: parse("COMPOSE_GAME_TYPE", 5555),
+            game_type: parse("COMPOSE_GAME_TYPE", DEFAULT_COMPOSE_GAME_TYPE),
             el_start_block: start_block("EL_START_BLOCK"),
             l1_start_block: start_block("L1_START_BLOCK"),
-            poll_interval_ms: parse("POLL_INTERVAL_MS", 1000),
-            log_max_range: parse("LOG_MAX_RANGE", 5000),
+            poll_interval_ms: parse("POLL_INTERVAL_MS", DEFAULT_POLL_INTERVAL_MS),
+            eth_get_logs_max_blocks: parse(
+                "ETH_GET_LOGS_MAX_BLOCKS",
+                DEFAULT_ETH_GET_LOGS_MAX_BLOCKS,
+            ),
             stall_timeout_secs: parse("STALL_TIMEOUT_SECONDS", cross_scout_types::PERIOD_SECONDS),
-            db_max_conns: parse("DB_MAX_CONNS", 10),
+            db_max_conns: parse("DB_MAX_CONNS", DEFAULT_DB_MAX_CONNS),
         }
     }
 }

@@ -23,7 +23,7 @@ WORKDIR /app
 COPY package.json bun.lock tsconfig.base.json turbo.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY packages ./packages
-COPY apps/api ./apps/api
+COPY --from=builder /app/apps/api ./apps/api
 COPY --from=builder /app/apps/crossscout/dist ./apps/crossscout/dist
 
 ENV NODE_ENV=production

@@ -1,0 +1,102 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/types",
+  "crates/store",
+  "crates/correlate",
+  "crates/ingest-el",
+  "crates/ingest-bridge",
+  "crates/ingest-flashblocks",
+  "crates/ingest-settlement",
+  "crates/indexer-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+authors = ["Ethera Labs"]
+repository = "https://github.com/ethera-labs/cross-scout"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+
+[workspace.dependencies]
+# runtime
+tokio = { version = "1.40", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# errors / logging
+anyhow = "1"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# time
+chrono = { version = "0.4", features = ["serde"] }
+
+# ts export
+ts-rs = "10"
+
+# db
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio",
+  "tls-rustls",
+  "postgres",
+  "macros",
+  "migrate",
+  "chrono",
+  "bigdecimal",
+  "json",
+] }
+bigdecimal = "0.4"
+
+# protocol spec
+ethera-spec = { git = "https://github.com/ethera-labs/specs.git", branch = "feat/compose-rs" }
+
+# ethereum
+alloy = { version = "2", default-features = false, features = [
+  "std",
+  "serde",
+  "providers",
+  "transport-http",
+  "transport-ws",
+  "rpc-types-eth",
+  "sol-types",
+  "network",
+  "contract",
+  "consensus",
+  "eips",
+  "k256",
+  "reqwest-rustls-tls",
+] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+# Shares alloy's rustls stack; used by the indexer-core publisher stats poller.
+reqwest = { version = "0.13", default-features = false, features = [
+  "rustls",
+  "json",
+] }
+
+# config
+figment = { version = "0.10", features = ["toml", "env"] }
+
+# internal
+cross-scout-types = { path = "crates/types" }
+cross-scout-store = { path = "crates/store" }
+cross-scout-correlate = { path = "crates/correlate" }
+cross-scout-ingest-el = { path = "crates/ingest-el" }
+cross-scout-ingest-bridge = { path = "crates/ingest-bridge" }
+cross-scout-ingest-flashblocks = { path = "crates/ingest-flashblocks" }
+cross-scout-ingest-settlement = { path = "crates/ingest-settlement" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

@@ -1,0 +1,22 @@
+# Local development dependencies for the CrossScout indexer.
+# The indexer itself and the api run on the host (cargo run / bun run);
+# this only brings up the datastore.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: crossscout
+      POSTGRES_PASSWORD: crossscout
+      POSTGRES_DB: crossscout
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crossscout"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

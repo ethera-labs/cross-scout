@@ -1,0 +1,29 @@
+{
+  "name": "@cross-scout/explorer",
+  "version": "0.1.0",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cross-scout/sdk": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "viem": "^2.54.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "playwright": "^1.61.1",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

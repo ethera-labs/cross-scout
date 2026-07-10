@@ -1,0 +1,25 @@
+[package]
+name = "cross-scout-ingest-flashblocks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "cross_scout_ingest_flashblocks"
+path = "src/lib.rs"
+
+[dependencies]
+cross-scout-types.workspace = true
+cross-scout-ingest-el.workspace = true
+alloy.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+
+[lints]
+workspace = true

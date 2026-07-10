@@ -1,0 +1,24 @@
+# rust
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# node / bun
+node_modules
+dist
+build
+.turbo
+*.tsbuildinfo
+bun.lockb
+
+# env / secrets
+.env
+.env.*.local
+.env.*
+
+# editor / os
+.DS_Store
+*.log
+
+# generated ts bindings land here from ts-rs
+packages/sdk/src/generated/

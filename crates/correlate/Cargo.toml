@@ -1,0 +1,21 @@
+[package]
+name = "cross-scout-correlate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "cross_scout_correlate"
+path = "src/lib.rs"
+
+[dependencies]
+cross-scout-types.workspace = true
+cross-scout-store.workspace = true
+alloy.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+
+[lints]
+workspace = true

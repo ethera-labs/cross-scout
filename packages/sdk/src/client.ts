@@ -15,14 +15,17 @@ import type {
   SearchResponse,
   StreamEvent,
   Superblock,
+  SuperblockPage,
+  SuperblockStatus,
   Withdrawal,
   WithdrawalPage,
   XtDetail,
   XtPage,
+  XtStatus,
 } from './types';
 
 export interface ListXtsParams {
-  status?: string;
+  status?: XtStatus;
   chain?: number;
   limit?: number;
   cursor?: string;
@@ -36,6 +39,12 @@ export interface ListBridgeOpsParams {
   limit?: number;
   cursor?: string;
   address?: string;
+}
+
+export interface ListSuperblocksParams {
+  limit?: number;
+  cursor?: number;
+  status?: SuperblockStatus;
 }
 
 export interface ActivityParams {
@@ -96,8 +105,8 @@ export class CrossScoutClient {
     return this.get<Instance>(`/v1/instances/${id}`);
   }
 
-  listSuperblocks(limit?: number): Promise<Superblock[]> {
-    return this.get<Superblock[]>('/v1/superblocks', limit ? { limit } : undefined);
+  listSuperblocks(params: ListSuperblocksParams = {}): Promise<SuperblockPage> {
+    return this.get<SuperblockPage>('/v1/superblocks', params as Record<string, unknown>);
   }
 
   getSuperblock(number: number): Promise<Superblock> {

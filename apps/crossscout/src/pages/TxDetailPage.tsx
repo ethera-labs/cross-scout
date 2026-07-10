@@ -22,10 +22,12 @@ const tabs: Array<[DetailTab, string]> = [
 
 function FieldRow({ label, value, copy }: { label: string; value: string; copy?: string | null }) {
   return (
-    <div className="advanced-row">
-      <span className="mono">{label}</span>
-      <strong className="mono">{value}</strong>
-      {copy && <CopyButton value={copy} />}
+    <div className="detail-field">
+      <span className="detail-field-label mono">{label}</span>
+      <span className="detail-field-value">
+        <strong className="mono">{value}</strong>
+        {copy && <CopyButton value={copy} />}
+      </span>
     </div>
   );
 }
@@ -234,6 +236,9 @@ export function TxDetailPage({
                 value={deliveryMsg?.txHash ? shortHex(deliveryMsg.txHash, 10, 8) : 'pending'}
                 copy={deliveryMsg?.txHash}
               />
+              {current.valueWei && (
+                <FieldRow label="Value" value={withUsd(formatEthCompact(current.valueWei), current.valueUsd)} />
+              )}
               <FieldRow label="Destination Fee" value={formatFee(deliveryMsg?.txFee)} />
               {transfers.length ? (
                 transfers.map((transfer) => {
@@ -275,7 +280,6 @@ export function TxDetailPage({
               ) : (
                 <FieldRow label="Action" value={current.label ?? 'mailbox message'} />
               )}
-              {current.valueWei && <FieldRow label="Value" value={withUsd(formatEthCompact(current.valueWei), current.valueUsd)} />}
             </div>
           </section>
           <div className="two-col">

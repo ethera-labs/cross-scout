@@ -1,7 +1,7 @@
 // REST surface (Hono): one handler per documented endpoint.
 
-import { Hono } from 'hono';
 import type { Context } from 'hono';
+import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import * as db from './db.ts';
 import { hexBytes, intParam, intervalParam, validCursor, windowParam } from './params.ts';
@@ -62,8 +62,17 @@ app.get('/v1/xts', async (c) => {
   const q = c.req.query();
   const chain = intParam(q.chain);
   const limit = intParam(q.limit);
+  const status =
+    q.status === 'pending' ||
+    q.status === 'committed' ||
+    q.status === 'validated' ||
+    q.status === 'finalized' ||
+    q.status === 'failed'
+      ? q.status
+      : undefined;
   if (q.chain && chain === undefined) return c.json({ error: 'invalid chain' }, 400);
   if (q.limit && limit === undefined) return c.json({ error: 'invalid limit' }, 400);
+  if (q.status && status === undefined) return c.json({ error: 'invalid status' }, 400);
   if (q.cursor && !validCursor(q.cursor)) {
     return c.json({ error: 'invalid cursor' }, 400);
   }
@@ -73,7 +82,7 @@ app.get('/v1/xts', async (c) => {
   if (q.token && token === undefined) return c.json({ error: 'invalid token' }, 400);
 
   const page = await db.listXts({
-    status: q.status,
+    status,
     chain,
     limit,
     cursor: q.cursor,
@@ -147,12 +156,29 @@ app.get('/v1/instances/:id', async (c) => {
   return instance ? c.json(instance) : c.json({ error: 'instance not found' }, 404);
 });
 
-// recent superblocks with their per-chain transitions
+// cursor-paginated superblocks with their per-chain transitions
 app.get('/v1/superblocks', async (c) => {
-  const raw = c.req.query('limit');
-  const limit = intParam(raw);
-  if (raw && limit === undefined) return c.json({ error: 'invalid limit' }, 400);
-  return c.json(await db.listSuperblocks(limit));
+  const q = c.req.query();
+  const limit = intParam(q.limit);
+  const cursor = intParam(q.cursor);
+  const status =
+    q.status === 'proposed' || q.status === 'validated' || q.status === 'finalized'
+      ? q.status
+      : undefined;
+  if (q.limit && (limit === undefined || limit < 1)) {
+    return c.json({ error: 'invalid limit' }, 400);
+  }
+  if (q.cursor && (cursor === undefined || cursor < 0)) {
+    return c.json({ error: 'invalid cursor' }, 400);
+  }
+  if (q.status && status === undefined) {
+    return c.json({ error: 'invalid status' }, 400);
+  }
+  return c.json(await db.listSuperblocks({
+    limit,
+    cursor,
+    status,
+  }));
 });
 
 // per-chain state transitions and validation rules
@@ -163,7 +189,7 @@ app.get('/v1/superblocks/:number', async (c) => {
   return sb ? c.json(sb) : c.json({ error: 'superblock not found' }, 404);
 });
 
-// inbox/outbox roots + message log vs a counterparty
+// recent mailbox messages and direction totals for a counterparty
 app.get('/v1/mailbox/:chain', async (c) => {
   const chain = intParam(c.req.param('chain'));
   if (chain === undefined) return c.json({ error: 'invalid chain' }, 400);

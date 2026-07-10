@@ -585,16 +585,21 @@
     @apply text-cs-ok;
   }
 
-  .advanced-row {
-    @apply flex items-center gap-2.5 border-b border-cs-line py-2 text-xs last:border-b-0;
+  .detail-field {
+    @apply grid items-center gap-2.5 border-b border-cs-line py-2 text-xs last:border-b-0;
+    grid-template-columns: 112px minmax(0, 1fr);
   }
 
-  .advanced-row > span {
-    @apply w-28 shrink-0 text-[10.5px] uppercase text-cs-faint;
+  .detail-field-label {
+    @apply text-[10.5px] uppercase text-cs-faint;
   }
 
-  .advanced-row strong {
-    @apply min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-cs-fg;
+  .detail-field-value {
+    @apply flex min-w-0 items-center gap-2;
+  }
+
+  .detail-field-value strong {
+    @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-cs-fg;
   }
 
   .curl-block {
@@ -1780,6 +1785,10 @@
   .panel,
   .mailbox-hero {
     @apply p-[18px];
+  }
+
+  .detail-field {
+    @apply grid-cols-1 gap-1;
   }
 
   .ladder {

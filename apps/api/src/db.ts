@@ -16,10 +16,13 @@ import type {
   RouteVolume,
   SearchResponse,
   Superblock,
+  SuperblockPage,
+  SuperblockStatus,
   Withdrawal,
   WithdrawalPage,
   XtDetail,
   XtPage,
+  XtStatus,
 } from '@cross-scout/sdk';
 import { fromHex, toHex, toIso } from './convert.ts';
 import type { IntervalParam, WindowParam } from './params.ts';
@@ -52,7 +55,7 @@ const url =
 export const sql = new SQL(url);
 
 export interface ListXtsQuery {
-  status?: string;
+  status?: XtStatus;
   chain?: number;
   limit?: number;
   cursor?: string;
@@ -85,13 +88,16 @@ export async function listXts(p: ListXtsQuery): Promise<XtPage> {
                and ${cursorHash}::bytea is not null and x.xt_hash < ${cursorHash}::bytea))
       and (${address}::bytea is null or x.sender = ${address}::bytea or x.receiver = ${address}::bytea)
     order by x.updated_at desc, x.xt_hash desc
-    limit ${limit}
+    limit ${limit + 1}
   `;
 
-  const last = rows[rows.length - 1];
-  const nextCursor =
-    rows.length === limit && last ? `${toIso(last.updated_at)}|${toHex(last.xt_hash)}` : null;
-  return { items: rows.map(toXt), nextCursor };
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map(toXt),
+    nextCursor: hasMore && last ? `${toIso(last.updated_at)}|${toHex(last.xt_hash)}` : null,
+  };
 }
 
 export interface ListBridgeOpsQuery {
@@ -185,12 +191,44 @@ export async function getSuperblock(number: number): Promise<Superblock | null> 
   return enrichSuperblockFees(toSuperblock(row, chainRows.map(toSuperblockChain)));
 }
 
-export async function listSuperblocks(limit = 50): Promise<Superblock[]> {
-  const capped = Math.min(Math.max(limit, 1), 200);
-  const rows = await sql`select * from superblocks order by number desc limit ${capped}`;
-  if (rows.length === 0) return [];
+export interface ListSuperblocksQuery {
+  limit?: number;
+  cursor?: number;
+  status?: SuperblockStatus;
+}
 
-  const numbers = rows.map((r: any) => Number(r.number));
+export async function listSuperblocks(p: ListSuperblocksQuery): Promise<SuperblockPage> {
+  const limit = Math.min(Math.max(p.limit ?? 50, 1), 200);
+  const cursor = p.cursor ?? null;
+  const status = p.status ?? null;
+  const [rows, countRows] = await Promise.all([
+    sql`
+      select * from superblocks
+      where (${status}::text is null or status = ${status})
+        and (${cursor}::bigint is null or number < ${cursor})
+      order by number desc
+      limit ${limit + 1}`,
+    sql`select status, count(*)::int as count from superblocks group by status`,
+  ]);
+  const counts: Record<SuperblockStatus, number> = {
+    proposed: 0,
+    validated: 0,
+    finalized: 0,
+  };
+  for (const row of countRows) {
+    const rowStatus: unknown = row.status;
+    if (rowStatus === 'proposed' || rowStatus === 'validated' || rowStatus === 'finalized') {
+      counts[rowStatus] = Number(row.count);
+    }
+  }
+  const total = status == null
+    ? counts.proposed + counts.validated + counts.finalized
+    : counts[status];
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  if (pageRows.length === 0) return { items: [], nextCursor: null, total, counts };
+
+  const numbers = pageRows.map((r: any) => Number(r.number));
   const chainRows = await sql`
     select * from superblock_chains where superblock_number in ${sql(numbers)}
     order by chain_id`;
@@ -201,9 +239,17 @@ export async function listSuperblocks(limit = 50): Promise<Superblock[]> {
     list.push(cr);
     byNumber.set(n, list);
   }
-  return rows.map((r: any) =>
-    toSuperblock(r, (byNumber.get(Number(r.number)) ?? []).map(toSuperblockChain)),
+  const items = pageRows.map((r: any) =>
+    enrichSuperblockFees(
+      toSuperblock(r, (byNumber.get(Number(r.number)) ?? []).map(toSuperblockChain)),
+    ),
   );
+  return {
+    items,
+    nextCursor: hasMore ? (items[items.length - 1]?.number ?? null) : null,
+    total,
+    counts,
+  };
 }
 
 export async function getXtDetail(hashHex: string): Promise<XtDetail | null> {
@@ -278,43 +324,47 @@ export async function getRollupView(chain: number): Promise<RollupView> {
 }
 
 export async function getStats(hostChain: number): Promise<NetworkStats> {
-  const [c] = await sql`
-    select
-      count(*)::int as total,
-      count(*) filter (where status = 'pending')::int as pending,
-      count(*) filter (where status = 'committed')::int as committed,
-      count(*) filter (where status = 'validated')::int as validated,
-      count(*) filter (where status = 'finalized')::int as finalized,
-      count(*) filter (where status = 'failed')::int as failed
-    from xts`;
-  const [sb] = await sql`select count(*)::int as n, avg(prove_ms)::float as avg from superblocks`;
-
-  // Routes: xt count (from xts) + transfers count per (src,dst), all-time
-  const routeRows = await sql`
-    select
-      x.src_chain,
-      x.dst_chain,
-      count(distinct x.xt_hash)::int as count,
-      coalesce(sum(case when t.kind = 'eth' then t.amount else 0 end), 0)::text as value_wei,
-      count(t.id)::int as transfers
-    from xts x
-    left join transfers t on t.session = x.xt_hash and t.safe = true
-    where x.src_chain is not null and x.dst_chain is not null
-    group by x.src_chain, x.dst_chain
-    order by count desc limit 20`;
-
-  // 24h window stats; transfers window on their own ts, not the XT's first
-  // sighting, so late-sealing transfers land in the right window.
-  const [w] = await sql`
-    select
-      (select count(*)::int from xts
-        where first_seen_at >= now() - interval '24 hours') as xts,
-      count(t.id)::int as transfers,
-      coalesce(sum(case when t.kind = 'eth' then t.amount else 0 end), 0)::text as volume_wei,
-      (select count(*)::int from mailbox_messages
-        where ts >= now() - interval '24 hours') as messages
-    from transfers t
-    where t.safe = true and t.ts >= now() - interval '24 hours'`;
+  const [counts, superblockCounts, routeRows, windowRows, finalizedRows] = await Promise.all([
+    sql`
+      select
+        count(*)::int as total,
+        count(*) filter (where status = 'pending')::int as pending,
+        count(*) filter (where status = 'committed')::int as committed,
+        count(*) filter (where status = 'validated')::int as validated,
+        count(*) filter (where status = 'finalized')::int as finalized,
+        count(*) filter (where status = 'failed')::int as failed
+      from xts`,
+    sql`select count(*)::int as n, avg(prove_ms)::float as avg from superblocks`,
+    sql`
+      select
+        x.src_chain,
+        x.dst_chain,
+        count(distinct x.xt_hash)::int as count,
+        coalesce(sum(case when t.kind = 'eth' then t.amount else 0 end), 0)::text as value_wei,
+        count(t.id)::int as transfers
+      from xts x
+      left join transfers t on t.session = x.xt_hash and t.safe = true
+      where x.src_chain is not null and x.dst_chain is not null
+      group by x.src_chain, x.dst_chain
+      order by count desc limit 20`,
+    // Transfer timestamps determine the 24h window so late-sealing transfers
+    // are attributed to the period in which they actually became observable.
+    sql`
+      select
+        (select count(*)::int from xts
+          where first_seen_at >= now() - interval '24 hours') as xts,
+        count(t.id)::int as transfers,
+        coalesce(sum(case when t.kind = 'eth' then t.amount else 0 end), 0)::text as volume_wei,
+        (select count(*)::int from mailbox_messages
+          where ts >= now() - interval '24 hours') as messages
+      from transfers t
+      where t.safe = true and t.ts >= now() - interval '24 hours'`,
+    sql`select max(number)::int as n from superblocks where status = 'finalized'`,
+  ]);
+  const [c] = counts;
+  const [sb] = superblockCounts;
+  const [w] = windowRows;
+  const [lastFin] = finalizedRows;
 
   // commitRate = decided / max(1, total decided + pending) - excludes failed
   const total = Number(c?.total ?? 0);
@@ -322,9 +372,6 @@ export async function getStats(hostChain: number): Promise<NetworkStats> {
   const failed = Number(c?.failed ?? 0);
   const decided = total - pending - failed;
   const commitRate = decided > 0 ? decided / Math.max(1, total - pending) : null;
-
-  const [lastFin] = await sql`
-    select max(number)::int as n from superblocks where status = 'finalized'`;
 
   const routes: RouteVolume[] = routeRows.map((r: any) => ({
     srcChain: Number(r.src_chain),

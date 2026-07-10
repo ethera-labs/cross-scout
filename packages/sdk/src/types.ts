@@ -279,6 +279,14 @@ export interface XtPage {
   nextCursor: string | null;
 }
 
+/** Cursor page returned by `GET /v1/superblocks`. */
+export interface SuperblockPage {
+  items: Superblock[];
+  nextCursor: number | null;
+  total: number;
+  counts: Record<SuperblockStatus, number>;
+}
+
 /** Per-rollup counterparty view for `GET /v1/rollups/:chain`. */
 export interface RollupView {
   chainId: number;

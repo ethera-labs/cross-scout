@@ -46,11 +46,6 @@ export function MailboxPage({
     <>
       <div className="explorer-titlebar">
         <h2>Mailbox</h2>
-        <span className="live-mode mono">
-          <i />
-          ROOT MODE
-          <b />
-        </span>
       </div>
       <div className="mailbox-layout">
         <aside className="side-list">

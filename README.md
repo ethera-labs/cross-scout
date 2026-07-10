@@ -103,15 +103,16 @@ cross-scout/
 |--------|---------------------------------|------------------------------------------------------------|
 | GET    | `/health`                       | liveness - process is up                                   |
 | GET    | `/ready`                        | readiness - Postgres answers                               |
-| GET    | `/v1/xts`                       | list XTs, filter by `status`, `chain`, `address`, `token`  |
+| GET    | `/v1/xts`                       | cursor-paginated XTs; status, chain, address, token        |
 | GET    | `/v1/xts/:hash`                 | full XT lifecycle, transfers, mailbox, superblock, tokens  |
 | GET    | `/v1/deposits`                  | L1->L2 deposits, filter by `status`, `chain`, `address`    |
 | GET    | `/v1/deposits/:sourceHash`      | one L1->L2 deposit by source hash                          |
 | GET    | `/v1/withdrawals`               | L2->L1 withdrawals, filter by `status`, `chain`, `address` |
 | GET    | `/v1/withdrawals/:hash`         | one L2->L1 withdrawal by withdrawal hash                   |
 | GET    | `/v1/instances/:id`             | cross-chain session and its derived decision               |
+| GET    | `/v1/superblocks`               | cursor-paginated superblock history                        |
 | GET    | `/v1/superblocks/:number`       | per-chain state transitions and dispute game               |
-| GET    | `/v1/mailbox/:chain`            | inbox/outbox roots and message log                         |
+| GET    | `/v1/mailbox/:chain`            | message totals and recent log for a counterparty           |
 | GET    | `/v1/rollups/:chain`            | counterparty stats and recent XTs                          |
 | GET    | `/v1/stats`                     | network totals, 24h window, commit rate, route volumes     |
 | GET    | `/v1/analytics/activity`        | zero-filled activity time series (`window`, `interval`)    |

@@ -31,17 +31,28 @@ export function CopyButton({ value }: { value: string | null | undefined }) {
   }, [copied]);
 
   if (!value) return null;
+  const copy = () => {
+    void copyText(value)
+      .then(() => setCopied(true))
+      .catch(() => undefined);
+  };
+
   return (
     <span
       role="button"
+      tabIndex={0}
       title="Copy"
       aria-label={`Copy ${value}`}
       className={copied ? 'copy-button copied' : 'copy-button'}
       onClick={(event) => {
         event.stopPropagation();
-        void copyText(value)
-          .then(() => setCopied(true))
-          .catch(() => undefined);
+        copy();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        copy();
       }}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}

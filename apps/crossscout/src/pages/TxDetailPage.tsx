@@ -191,7 +191,7 @@ export function TxDetailPage({
         </div>
         <div className="route-diagram">
           {route.map((chain, idx) => (
-            <div className="route-diagram-item" key={`${chain.id}-${idx}`}>
+            <div className="route-diagram-item" key={chain.id}>
               <div
                 className="route-node"
                 style={{

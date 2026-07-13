@@ -11,13 +11,18 @@ const HEIGHT = 280;
 const PAD_X = 8;
 const PAD_TOP = 18;
 const PAD_BOTTOM = 34;
+const GRID_LINES = [0.25, 0.5, 0.75];
+const DAY_FORMATTER = new Intl.DateTimeFormat('en-US', { day: '2-digit', month: 'short' });
+const TIME_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
 
 function axisTime(iso: string, dayScale: boolean): string {
   const time = Date.parse(iso);
   if (!Number.isFinite(time)) return '';
-  return new Intl.DateTimeFormat('en-US', {
-    ...(dayScale ? { day: '2-digit', month: 'short' } : { hour: '2-digit', minute: '2-digit', hour12: false }),
-  }).format(time);
+  return (dayScale ? DAY_FORMATTER : TIME_FORMATTER).format(time);
 }
 
 /**
@@ -62,7 +67,6 @@ export function AreaChart({
   const [head, next] = points;
   const dayScale = head != null && next != null && Date.parse(next.ts) - Date.parse(head.ts) >= 86_400_000;
   const tickEvery = Math.max(1, Math.ceil(points.length / 7));
-  const gridLines = [0.25, 0.5, 0.75];
 
   const onMove = (event: React.MouseEvent<SVGSVGElement>) => {
     const svg = svgRef.current;
@@ -103,7 +107,7 @@ export function AreaChart({
             <stop offset="1" stopColor="var(--accent)" stopOpacity="0.02" />
           </linearGradient>
         </defs>
-        {gridLines.map((g) => {
+        {GRID_LINES.map((g) => {
           const y = PAD_TOP + (HEIGHT - PAD_TOP - PAD_BOTTOM) * g;
           return (
             <line

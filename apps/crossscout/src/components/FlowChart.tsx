@@ -118,7 +118,7 @@ function buildRibbons(
   const srcOffset = new Map<number, number>();
   const dstOffset = new Map<number, number>();
 
-  const ordered = [...weighted].sort((a, b) => {
+  const ordered = weighted.toSorted((a, b) => {
     const bySrc = (srcIndex.get(a.route.srcChain) ?? 0) - (srcIndex.get(b.route.srcChain) ?? 0);
     if (bySrc !== 0) return bySrc;
     return (dstIndex.get(a.route.dstChain) ?? 0) - (dstIndex.get(b.route.dstChain) ?? 0);
@@ -250,9 +250,11 @@ export function FlowChart({
 }) {
   const [selectedSource, setSelectedSource] = useState<number | null>(null);
   const byId = chainById(chains);
-  const weighted = routes
-    .map((route) => ({ route, weight: routeWeight(route, mode) }))
-    .filter((item) => item.weight > 0);
+  const weighted: WeightedRoute[] = [];
+  for (const route of routes) {
+    const weight = routeWeight(route, mode);
+    if (weight > 0) weighted.push({ route, weight });
+  }
   // Routes with traffic but zero weight under the active metric (token-only
   // legs in volume mode) still draw as hairlines so connectivity stays
   // visible; they just carry no share.

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import type { MailboxView } from '@cross-scout/sdk';
 import { EmptyPanel, Glyph } from '../components/primitives';
-import { mailboxAnchor, MailboxTableRow } from '../components/rows';
-import type { ChainView } from '../lib/chains';
-import { chainView } from '../lib/chains';
+import { MailboxTableRow } from '../components/rows';
+import { chainView, type ChainView } from '../lib/chains';
 import { fmt } from '../lib/format';
+import { mailboxAnchor } from '../lib/mailbox';
 import { Button } from '../ui/Button';
 
 type DirectionFilter = 'all' | 'in' | 'out';

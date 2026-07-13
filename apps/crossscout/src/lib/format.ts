@@ -1,5 +1,5 @@
 import { formatUnits } from 'viem';
-import type { TxFee, XtStatus } from '@cross-scout/sdk';
+import type { TxFee } from '@cross-scout/sdk';
 import { STAGE_NAMES, STAGE_ROLLED_BACK } from '@cross-scout/sdk';
 
 /**
@@ -32,21 +32,6 @@ export function shortHex(hex: string | null | undefined, lead = 6, tail = 4): st
 export function stageName(stage: number): string {
   if (stage === STAGE_ROLLED_BACK) return 'rolled back';
   return STAGE_NAMES[stage] ?? 'unknown';
-}
-
-export function statusColor(status: XtStatus): { fg: string; bg: string } {
-  switch (status) {
-    case 'finalized':
-      return { fg: 'var(--ok)', bg: 'var(--ok-soft)' };
-    case 'validated':
-      return { fg: 'var(--info)', bg: 'var(--info-soft)' };
-    case 'committed':
-      return { fg: 'var(--warn)', bg: 'var(--warn-soft)' };
-    case 'failed':
-      return { fg: 'var(--bad)', bg: 'var(--bad-soft)' };
-    default:
-      return { fg: 'var(--fg-dim)', bg: 'var(--bg-3)' };
-  }
 }
 
 export function timeAgo(iso: string): string {

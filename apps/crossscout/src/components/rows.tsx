@@ -183,8 +183,3 @@ export function MailboxTableRow({ message, chains }: { message: MailboxMessage; 
     </div>
   );
 }
-
-/** Block hash of the most recent message in the given direction. */
-export function mailboxAnchor(messages: MailboxMessage[], direction: 'in' | 'out'): string {
-  return shortHex(messages.find((message) => message.direction === direction)?.blockHash, 9, 6);
-}

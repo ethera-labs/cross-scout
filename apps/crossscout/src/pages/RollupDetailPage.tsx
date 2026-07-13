@@ -1,9 +1,9 @@
 import type { MailboxView, RollupView, Xt } from '@cross-scout/sdk';
 import { BackButton, EmptyPanel, Glyph, SectionTitle } from '../components/primitives';
-import { mailboxAnchor, TxRow } from '../components/rows';
-import type { ChainView } from '../lib/chains';
-import { chainView } from '../lib/chains';
+import { TxRow } from '../components/rows';
+import { chainView, type ChainView } from '../lib/chains';
 import { fmt, formatEthCompact, sumWei } from '../lib/format';
+import { mailboxAnchor } from '../lib/mailbox';
 
 export function RollupDetailPage({
   chainId,

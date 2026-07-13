@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { ChainView } from '../lib/chains';
 import type { Page, Theme } from '../lib/nav';
-import { LogoIcon, MoonIcon, SearchIcon, SunIcon } from '../ui/icons';
+import { MoonIcon, SearchIcon, SunIcon } from '../ui/icons';
 import { Glyph } from './primitives';
 
 export function AppHeader({
@@ -68,7 +68,7 @@ export function AppHeader({
       <header className="topbar">
         <div className="topbar-inner">
           <button type="button" className="brand" onClick={() => nav('overview')}>
-            <LogoIcon />
+            <img className="cs-logo-mark" src="/favicon.svg" width={36} height={36} alt="" aria-hidden="true" />
             <span>
               <strong>CrossScout</strong>
               <small className="mono">ETHERA NETWORK</small>

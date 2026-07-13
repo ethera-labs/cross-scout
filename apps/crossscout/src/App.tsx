@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Superblock, Xt, XtDetail } from '@cross-scout/sdk';
+import { skipToken, useQuery } from '@tanstack/react-query';
+import type { Superblock, Xt } from '@cross-scout/sdk';
 import { AppHeader } from './components/AppHeader';
 import { useChainData } from './hooks/useChainData';
 import { useExplorerData } from './hooks/useExplorerData';
@@ -10,10 +11,9 @@ import type { AnalyticsWindow } from './lib/api';
 import { api } from './lib/api';
 import { chainById, makeChains } from './lib/chains';
 import { chainName } from './lib/format';
-import type { Network, Page, Theme } from './lib/nav';
+import type { Page, Theme } from './lib/nav';
 import type { SuperblockFilter, XtFilter } from './lib/status';
 import { BridgePage } from './pages/BridgePage';
-import { InstancesPage } from './pages/InstancesPage';
 import { MailboxPage } from './pages/MailboxPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { OverviewPage } from './pages/OverviewPage';
@@ -58,37 +58,26 @@ function filterXts(xts: Xt[], query: string): Xt[] {
 
 export function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
-  const [network, setNetwork] = useState<Network>('Mainnet');
   const [page, setPage] = useState<Page>('overview');
   const [query, setQuery] = useState('');
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [analyticsWindow, setAnalyticsWindow] = useState<AnalyticsWindow>('24h');
   const [selectedChain, setSelectedChain] = useState<number | null>(null);
   const [selectedHash, setSelectedHash] = useState<string | null>(null);
-  const [selectedDetail, setSelectedDetail] = useState<XtDetail | null>(null);
   const [selectedSuperblockNumber, setSelectedSuperblockNumber] = useState<number | null>(null);
-  const [selectedSuperblock, setSelectedSuperblock] = useState<Superblock | null>(null);
   const [xtFilter, setXtFilter] = useState<XtFilter>('all');
   const [sbFilter, setSbFilter] = useState<SuperblockFilter>('all');
   const [transactionsPaused, setTransactionsPaused] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [superblockLoading, setSuperblockLoading] = useState(false);
 
   const superblockPages = useSuperblocks(page === 'superblocks', sbFilter);
-  const explorer = useExplorerData(page, analyticsWindow, superblockPages.applyUpdate);
+  const explorer = useExplorerData(page, analyticsWindow);
   const transactionPages = usePaginatedXts({
     active: page === 'txs',
     filter: xtFilter,
-    refreshVersion: explorer.refreshVersion,
     automaticRefresh: !transactionsPaused,
+    liveXts: explorer.liveXts,
+    polling: !explorer.streamUp,
   });
-  const sessionPages = usePaginatedXts({
-    active: page === 'instances',
-    filter: 'all',
-    refreshVersion: explorer.refreshVersion,
-    automaticRefresh: true,
-  });
-  const chainData = useChainData(page, selectedChain, explorer.refreshVersion);
   const {
     stats,
     xts: recentXts,
@@ -103,9 +92,22 @@ export function App() {
     bridgeLoading,
     networkLoading,
     error,
-    refreshVersion,
   } = explorer;
-  const { mailbox, rollup, loading: paneLoading } = chainData;
+
+  const detail = useQuery({
+    queryKey: ['xt', selectedHash],
+    queryFn: selectedHash == null ? skipToken : () => api.getXt(selectedHash),
+    enabled: page === 'txDetail' && selectedHash != null,
+  });
+  const superblockDetail = useQuery({
+    queryKey: ['superblock', selectedSuperblockNumber],
+    queryFn:
+      selectedSuperblockNumber == null
+        ? skipToken
+        : () => api.getSuperblock(selectedSuperblockNumber),
+    enabled: page === 'superblockDetail' && selectedSuperblockNumber != null,
+  });
+  const selectedDetail = detail.data ?? null;
 
   const selectSuperblockFilter = (filter: SuperblockFilter) => {
     superblockPages.resetPagination();
@@ -117,9 +119,10 @@ export function App() {
     setXtFilter(filter);
   };
 
-  useEffect(() => {
-    window.localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
+  const selectTheme = (next: Theme) => {
+    window.localStorage.setItem(THEME_KEY, next);
+    setTheme(next);
+  };
 
   const chainIds = useMemo(() => {
     const ids = new Set<number>();
@@ -131,7 +134,6 @@ export function App() {
     const indexedXts = [
       ...recentXts,
       ...transactionPages.items,
-      ...sessionPages.items,
       ...(selectedDetail ? [selectedDetail.xt] : []),
     ];
     for (const xt of indexedXts) {
@@ -147,18 +149,15 @@ export function App() {
       if (host != null && b === host) return 1;
       return a - b;
     });
-  }, [deposits, recentXts, selectedDetail, sessionPages.items, stats, transactionPages.items, withdrawals]);
+  }, [deposits, recentXts, selectedDetail, stats, transactionPages.items, withdrawals]);
 
   const chains = useMemo(() => makeChains(chainIds, stats?.hostChain), [chainIds, stats?.hostChain]);
   const byId = useMemo(() => chainById(chains), [chains]);
-
-  useEffect(() => {
-    const fallback = chainIds[0];
-    const counterparty = chainIds.find((id) => id !== stats?.hostChain);
-    const next = counterparty ?? fallback;
-    if (next == null) return;
-    if (selectedChain == null || !chainIds.includes(selectedChain)) setSelectedChain(next);
-  }, [chainIds, selectedChain, stats?.hostChain]);
+  const defaultChain = chainIds.find((id) => id !== stats?.hostChain) ?? chainIds[0] ?? null;
+  const activeChain =
+    selectedChain != null && chainIds.includes(selectedChain) ? selectedChain : defaultChain;
+  const chainData = useChainData(page, activeChain);
+  const { mailbox, rollup, loading: paneLoading } = chainData;
 
   const nav = (next: Page) => {
     setPage(next);
@@ -173,7 +172,6 @@ export function App() {
 
   const goSuperblock = (sbOrNumber: Superblock | number) => {
     setSelectedSuperblockNumber(typeof sbOrNumber === 'number' ? sbOrNumber : sbOrNumber.number);
-    setSelectedSuperblock(typeof sbOrNumber === 'number' ? null : sbOrNumber);
     setPage('superblockDetail');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -213,53 +211,6 @@ export function App() {
       .catch(() => undefined);
   };
 
-  useEffect(() => {
-    if (page !== 'txDetail' || !selectedHash) {
-      setSelectedDetail(null);
-      setDetailLoading(false);
-      return;
-    }
-
-    let live = true;
-    setDetailLoading(true);
-    void api.getXt(selectedHash)
-      .then((detail) => {
-        if (live) setSelectedDetail(detail);
-      })
-      .catch(() => {
-        if (live) setSelectedDetail(null);
-      })
-      .finally(() => {
-        if (live) setDetailLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [page, refreshVersion, selectedHash]);
-
-  useEffect(() => {
-    if (page !== 'superblockDetail' || selectedSuperblockNumber == null) {
-      setSuperblockLoading(false);
-      return;
-    }
-
-    let live = true;
-    setSuperblockLoading(true);
-    void api.getSuperblock(selectedSuperblockNumber)
-      .then((sb) => {
-        if (live) setSelectedSuperblock(sb);
-      })
-      .catch(() => {
-        if (live) setSelectedSuperblock(null);
-      })
-      .finally(() => {
-        if (live) setSuperblockLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [page, refreshVersion, selectedSuperblockNumber]);
-
   const normalizedQuery = query.trim().toLowerCase();
   const filteredRecentXts = useMemo(
     () => filterXts(recentXts, normalizedQuery),
@@ -269,20 +220,10 @@ export function App() {
     () => filterXts(transactionPages.items, normalizedQuery),
     [normalizedQuery, transactionPages.items],
   );
-  const filteredSessionXts = useMemo(
-    () => filterXts(sessionPages.items, normalizedQuery),
-    [normalizedQuery, sessionPages.items],
-  );
-
   const filteredSuperblocks = useMemo(
     () => filterSuperblocks(superblockPages.items, normalizedQuery),
     [normalizedQuery, superblockPages.items],
   );
-  const filteredLatestSuperblocks = useMemo(
-    () => filterSuperblocks(superblockPages.latest, normalizedQuery),
-    [normalizedQuery, superblockPages.latest],
-  );
-
   const filteredDeposits = useMemo(() => {
     if (!normalizedQuery) return deposits;
     return deposits.filter((deposit) =>
@@ -324,18 +265,23 @@ export function App() {
   const selectedXt = selectedHash
     ? selectedDetail?.xt ??
       transactionPages.items.find((xt) => xt.xtHash === selectedHash) ??
-      sessionPages.items.find((xt) => xt.xtHash === selectedHash) ??
       recentXts.find((xt) => xt.xtHash === selectedHash) ??
       null
     : null;
+  const selectedSuperblock =
+    superblockDetail.data ??
+    superblockPages.items.find((item) => item.number === selectedSuperblockNumber) ??
+    null;
+  const setTransactionUpdatesPaused = (paused: boolean) => {
+    setTransactionsPaused(paused);
+    if (!paused) void transactionPages.refetch();
+  };
   const pageError =
     page === 'superblocks'
       ? superblockPages.error
       : page === 'txs'
         ? transactionPages.error
-        : page === 'instances'
-          ? sessionPages.error
-          : null;
+        : null;
 
   let content: ReactNode;
   switch (page) {
@@ -349,7 +295,7 @@ export function App() {
           onTx={goTx}
           live={streamUp}
           paused={transactionsPaused}
-          setPaused={setTransactionsPaused}
+          setPaused={setTransactionUpdatesPaused}
           counts={xtCounts}
           total={transactionTotal}
           page={transactionPages.page}
@@ -376,7 +322,7 @@ export function App() {
         <TxDetailPage
           xt={selectedXt}
           detail={selectedDetail}
-          loading={detailLoading}
+          loading={detail.isPending}
           chains={byId}
           back={() => nav('txs')}
           onSuperblock={goSuperblock}
@@ -409,25 +355,9 @@ export function App() {
       content = (
         <SuperblockDetailPage
           sb={selectedSuperblock}
-          loading={superblockLoading}
+          loading={superblockDetail.isPending}
           chains={byId}
           back={() => nav('superblocks')}
-        />
-      );
-      break;
-    case 'instances':
-      content = (
-        <InstancesPage
-          xts={filteredSessionXts}
-          chains={byId}
-          onTx={goTx}
-          total={xtCounts.all}
-          page={sessionPages.page}
-          loading={sessionPages.loading}
-          hasNewer={sessionPages.hasNewer}
-          hasOlder={sessionPages.hasOlder}
-          onNewer={sessionPages.showNewer}
-          onOlder={sessionPages.showOlder}
         />
       );
       break;
@@ -437,7 +367,7 @@ export function App() {
           chainIds={chainIds}
           chains={byId}
           hostChain={stats?.hostChain ?? null}
-          selectedChain={selectedChain}
+          selectedChain={activeChain}
           mailbox={mailbox}
           loading={paneLoading}
           onSelectChain={setSelectedChain}
@@ -458,7 +388,7 @@ export function App() {
     case 'rollupDetail':
       content = (
         <RollupDetailPage
-          chainId={selectedChain}
+          chainId={activeChain}
           chains={byId}
           hostChain={stats?.hostChain ?? null}
           xts={filteredRecentXts}
@@ -474,8 +404,6 @@ export function App() {
       content = (
         <OverviewPage
           stats={stats}
-          xts={filteredRecentXts}
-          superblocks={filteredLatestSuperblocks}
           activity={activity}
           routes={routes}
           assets={assets}
@@ -483,11 +411,8 @@ export function App() {
           setWindow={setAnalyticsWindow}
           chains={chains}
           byId={byId}
-          network={network}
           loading={coreLoading && !streamUp}
           onTxs={() => nav('txs')}
-          onTx={goTx}
-          onSuperblock={goSuperblock}
         />
       );
   }
@@ -497,9 +422,7 @@ export function App() {
       <AppHeader
         page={page}
         theme={theme}
-        setTheme={setTheme}
-        network={network}
-        setNetwork={setNetwork}
+        setTheme={selectTheme}
         query={query}
         setQuery={setQuery}
         onSearchSubmit={searchJump}
@@ -508,7 +431,7 @@ export function App() {
         setSwitcherOpen={setSwitcherOpen}
         nav={nav}
         onSelectRollup={goRollup}
-        activeChainId={page === 'rollupDetail' ? selectedChain : null}
+        activeChainId={page === 'rollupDetail' ? activeChain : null}
         showNetwork={networkView?.publisher != null}
       />
       <main>

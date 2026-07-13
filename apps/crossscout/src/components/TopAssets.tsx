@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { formatEther, formatUnits } from 'viem';
 import type { ActivityPoint, AssetVolume } from '@cross-scout/sdk';
 import { api } from '../lib/api';
@@ -32,36 +33,17 @@ export function TopAssets({
   window: string;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const [series, setSeries] = useState<ActivityPoint[]>([]);
-  const [seriesLoading, setSeriesLoading] = useState(false);
 
   const active =
     (selected != null ? assets.find((asset) => assetKey(asset) === selected) : undefined) ??
     assets[0] ??
     null;
 
-  useEffect(() => {
-    if (!active) {
-      setSeries([]);
-      return;
-    }
-    let live = true;
-    setSeriesLoading(true);
-    void api
-      .getAssetActivity({ window, token: active.token?.address })
-      .then((points) => {
-        if (live) setSeries(points);
-      })
-      .catch(() => {
-        if (live) setSeries([]);
-      })
-      .finally(() => {
-        if (live) setSeriesLoading(false);
-      });
-    return () => {
-      live = false;
-    };
-  }, [active, window]);
+  const series = useQuery<ActivityPoint[]>({
+    queryKey: ['assetActivity', window, active?.token?.address ?? 'eth'],
+    queryFn: () => api.getAssetActivity({ window, token: active?.token?.address }),
+    enabled: active != null,
+  });
 
   if (assets.length === 0) {
     return <EmptyPanel>no transferred assets in the current window</EmptyPanel>;
@@ -109,14 +91,14 @@ export function TopAssets({
           <span className="mono">{window}</span>
         </div>
         <AreaChart
-          points={series.map((point) => ({
+          points={(series.data ?? []).map((point) => ({
             ts: point.bucket,
             value: active?.token
               ? Number(formatUnits(BigInt(point.volumeWei), active.token.decimals ?? 18))
               : Number(formatEther(BigInt(point.volumeWei))),
           }))}
           formatValue={formatSeriesValue}
-          empty={seriesLoading ? 'loading asset activity...' : 'no activity for this asset in the window'}
+          empty={series.isPending ? 'loading asset activity...' : 'no activity for this asset in the window'}
         />
       </div>
     </div>

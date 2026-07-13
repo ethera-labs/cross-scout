@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { ChainView } from '../lib/chains';
-import type { Network, Page, Theme } from '../lib/nav';
+import type { Page, Theme } from '../lib/nav';
 import { LogoIcon, MoonIcon, SearchIcon, SunIcon } from '../ui/icons';
 import { Glyph } from './primitives';
 
@@ -8,8 +8,6 @@ export function AppHeader({
   page,
   theme,
   setTheme,
-  network,
-  setNetwork,
   query,
   setQuery,
   onSearchSubmit,
@@ -24,8 +22,6 @@ export function AppHeader({
   page: Page;
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  network: Network;
-  setNetwork: (network: Network) => void;
   query: string;
   setQuery: (query: string) => void;
   onSearchSubmit: () => void;
@@ -56,10 +52,9 @@ export function AppHeader({
     ['txs', 'TRANSACTIONS'],
     ['bridge', 'BRIDGE'],
     ['superblocks', 'SUPERBLOCKS'],
-    ['instances', 'SESSIONS'],
     ['mailbox', 'MAILBOX'],
     ['rollups', 'ROLLUPS'],
-    ...(showNetwork ? ([['network', 'NETWORK']] as Array<[Page, string]>) : []),
+    ...(showNetwork ? ([['network', 'PUBLISHER']] as Array<[Page, string]>) : []),
   ];
   const activeNav = (item: Page) => {
     if (item === 'txs') return page === 'txs' || page === 'txDetail';
@@ -124,18 +119,6 @@ export function AppHeader({
               )}
             </div>
           )}
-          <div className="segmented">
-            {(['Mainnet', 'Testnet'] as Network[]).map((item) => (
-              <button
-                type="button"
-                className={network === item ? 'active' : ''}
-                key={item}
-                onClick={() => setNetwork(item)}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
           <div className="segmented icon-segmented">
             <button
               type="button"

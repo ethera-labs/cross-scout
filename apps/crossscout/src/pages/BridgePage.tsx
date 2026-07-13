@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { Deposit, Withdrawal } from '@cross-scout/sdk';
 import { EmptyPanel, Glyph } from '../components/primitives';
 import type { ChainView } from '../lib/chains';
@@ -122,13 +122,10 @@ export function BridgePage({
   loading: boolean;
 }) {
   const [tab, setTab] = useState<BridgeTab>('deposits');
-  const totals = useMemo(
-    () => ({
-      deposits: deposits.length,
-      withdrawals: withdrawals.length,
-    }),
-    [deposits.length, withdrawals.length],
-  );
+  const totals = {
+    deposits: deposits.length,
+    withdrawals: withdrawals.length,
+  };
   const showingDeposits = tab === 'deposits';
 
   return (

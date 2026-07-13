@@ -955,15 +955,6 @@
     grid-template-columns: minmax(150px, 1.15fr) minmax(120px, 0.9fr) 92px minmax(120px, 0.8fr) minmax(120px, 0.85fr) minmax(170px, 1.25fr) 86px;
   }
 
-  .inst-head {
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.6fr) minmax(0, 0.9fr) minmax(0, 0.6fr);
-  }
-
-  .inst-head.dense,
-  .inst-table-row {
-    grid-template-columns: minmax(150px, 1.2fr) minmax(150px, 1fr) minmax(120px, 0.75fr) minmax(105px, 0.65fr) 102px minmax(145px, 0.9fr) 82px;
-  }
-
   .mailbox-head.dense,
   .mailbox-table-row {
     grid-template-columns: 92px minmax(140px, 0.95fr) 22px minmax(140px, 0.95fr) minmax(130px, 0.9fr) minmax(160px, 1fr) 96px 74px;
@@ -979,10 +970,6 @@
 
   .sb-row {
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr) minmax(0, 0.65fr) minmax(0, 1fr) minmax(0, 0.55fr) minmax(0, 1.1fr) minmax(0, 0.7fr);
-  }
-
-  .inst-row {
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 0.6fr) minmax(0, 0.9fr) minmax(0, 0.6fr);
   }
 
   .list-row > div,
@@ -1078,6 +1065,18 @@
     @apply absolute top-[30px] left-[calc(50%+43px)] h-0.5 rounded-sm;
     width: calc(100% - 86px);
     background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  }
+
+  .route-diagram-item i::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: -3px;
+    width: 8px;
+    height: 8px;
+    border-top: 2px solid var(--accent-2);
+    border-right: 2px solid var(--accent-2);
+    transform: rotate(45deg);
   }
 
   .route-node {
@@ -1184,7 +1183,11 @@
   }
 
   .timeline-tag {
-    @apply rounded-chip px-1.5 py-0.5 font-mono text-[9px] font-extrabold;
+    @apply inline-flex min-h-4 min-w-4 items-center justify-center rounded-chip px-1.5 py-0.5 font-mono text-[9px] font-extrabold;
+  }
+
+  .timeline-tag svg {
+    @apply h-3 w-3;
   }
 
   .timeline-tag.done {
@@ -1201,10 +1204,6 @@
 
   .timeline-tag.upcoming {
     @apply bg-cs-bg-3 text-cs-faint;
-  }
-
-  .timeline p {
-    @apply mb-0 mt-1 text-[12.5px] leading-normal text-cs-dim;
   }
 
   .timeline small {
@@ -1373,26 +1372,6 @@
 
   .intro-line span {
     @apply shrink-0 text-[12.5px] text-cs-faint;
-  }
-
-  .instance-id {
-    @apply flex min-w-0 items-center gap-[9px];
-  }
-
-  .instance-id > span {
-    @apply h-[7px] w-[7px] shrink-0 rounded-full;
-  }
-
-  .instance-hero .sb-title strong {
-    @apply text-[19px];
-  }
-
-  .decision-line {
-    @apply flex items-center gap-2.5;
-  }
-
-  .decision-line > span:first-child {
-    @apply text-[13px] text-cs-dim;
   }
 
   .detail-rows {

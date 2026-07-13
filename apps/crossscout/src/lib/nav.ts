@@ -1,5 +1,4 @@
 export type Theme = 'dark' | 'light';
-export type Network = 'Mainnet' | 'Testnet';
 
 export type Page =
   | 'overview'
@@ -8,7 +7,6 @@ export type Page =
   | 'bridge'
   | 'superblocks'
   | 'superblockDetail'
-  | 'instances'
   | 'mailbox'
   | 'rollups'
   | 'rollupDetail'

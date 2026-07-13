@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { Xt } from '@cross-scout/sdk';
 import { api } from '../lib/api';
 import type { XtFilter } from '../lib/status';
@@ -9,59 +10,49 @@ const POLL_INTERVAL_MS = 15_000;
 export function usePaginatedXts({
   active,
   filter,
-  refreshVersion,
   automaticRefresh,
+  liveXts,
+  polling,
 }: {
   active: boolean;
   filter: XtFilter;
-  refreshVersion: number;
   automaticRefresh: boolean;
+  liveXts: Xt[];
+  polling: boolean;
 }) {
-  const [items, setItems] = useState<Xt[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined]);
   const [pageIndex, setPageIndex] = useState(0);
-  const [pollVersion, setPollVersion] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const cursor = cursorHistory[pageIndex];
-  const liveRefreshVersion = automaticRefresh && pageIndex === 0 ? refreshVersion : 0;
 
-  useEffect(() => {
-    if (!active) return;
-    let current = true;
-    setLoading(true);
-    setError(null);
-    setNextCursor(null);
-    void api
-      .listXts({
+  const page = useQuery({
+    queryKey: ['xts', filter, cursor ?? null],
+    queryFn: () =>
+      api.listXts({
         limit: PAGE_SIZE,
         cursor,
         status: filter === 'all' ? undefined : filter,
-      })
-      .then((result) => {
-        if (!current) return;
-        setItems(result.items);
-        setNextCursor(result.nextCursor);
-      })
-      .catch((reason: unknown) => {
-        if (current) setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (current) setLoading(false);
-      });
-    return () => {
-      current = false;
-    };
-  }, [active, cursor, filter, liveRefreshVersion, pageIndex, pollVersion]);
+      }),
+    enabled: active,
+    placeholderData: keepPreviousData,
+    refetchInterval:
+      active && automaticRefresh && polling && pageIndex === 0 ? POLL_INTERVAL_MS : false,
+  });
 
-  useEffect(() => {
-    if (!active || !automaticRefresh || pageIndex !== 0) return;
-    const id = window.setInterval(() => setPollVersion((current) => current + 1), POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [active, automaticRefresh, pageIndex]);
+  const items = useMemo(() => {
+    const fetched = page.data?.items ?? [];
+    if (!automaticRefresh || pageIndex !== 0 || liveXts.length === 0) return fetched;
 
-  const showOlder = useCallback(() => {
+    const updatedHashes = new Set(liveXts.map((item) => item.xtHash));
+    return [
+      ...liveXts.filter((item) => filter === 'all' || item.status === filter),
+      ...fetched.filter((item) => !updatedHashes.has(item.xtHash)),
+    ]
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, PAGE_SIZE);
+  }, [automaticRefresh, filter, liveXts, page.data?.items, pageIndex]);
+
+  const showOlder = () => {
+    const nextCursor = page.data?.nextCursor;
     if (nextCursor == null) return;
     setCursorHistory((current) => {
       const next = current.slice(0, pageIndex + 1);
@@ -69,26 +60,25 @@ export function usePaginatedXts({
       return next;
     });
     setPageIndex((current) => current + 1);
-  }, [nextCursor, pageIndex]);
+  };
 
-  const showNewer = useCallback(() => {
-    setPageIndex((current) => Math.max(0, current - 1));
-  }, []);
+  const showNewer = () => setPageIndex((current) => Math.max(0, current - 1));
 
-  const resetPagination = useCallback(() => {
+  const resetPagination = () => {
     setCursorHistory([undefined]);
     setPageIndex(0);
-  }, []);
+  };
 
   return {
     items,
     page: pageIndex + 1,
-    loading,
-    error,
+    loading: page.isPending || page.isPlaceholderData,
+    error: page.error instanceof Error ? page.error.message : null,
     hasNewer: pageIndex > 0,
-    hasOlder: nextCursor != null,
+    hasOlder: page.data?.nextCursor != null,
     showNewer,
     showOlder,
     resetPagination,
+    refetch: page.refetch,
   };
 }

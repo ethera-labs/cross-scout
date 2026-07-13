@@ -1,6 +1,7 @@
 import type { Xt } from '@cross-scout/sdk';
 import { STAGE_ROLLED_BACK } from '@cross-scout/sdk';
 import { clock, timeAgo } from '../lib/format';
+import { CheckIcon } from '../ui/icons';
 
 interface Step {
   title: string;
@@ -85,15 +86,20 @@ export function Timeline({ xt }: { xt: Xt }) {
             <span className={`timeline-dot ${stateClass}`} />
             <div>
               <div className="timeline-title">
-                <strong>{step.title}</strong>
-                {step.offchain && <span className="timeline-tag upcoming">OFF-CHAIN</span>}
+                <strong title={step.copy}>{step.title}</strong>
+                {step.offchain && (
+                  <span className="timeline-tag upcoming" title={step.copy}>OFF-CHAIN</span>
+                )}
                 {!step.offchain && stateClass !== 'upcoming' && (
-                  <span className={`timeline-tag ${stateClass}`}>
-                    {isFailStep ? 'FAILED' : current ? 'ACTIVE' : 'DONE'}
+                  <span
+                    className={`timeline-tag ${stateClass}`}
+                    title={step.copy}
+                    aria-label={isFailStep ? 'Failed' : current ? 'Active' : 'Done'}
+                  >
+                    {isFailStep ? 'FAILED' : current ? 'ACTIVE' : <CheckIcon />}
                   </span>
                 )}
               </div>
-              <p>{step.copy}</p>
               <small className="mono">
                 {step.at ? `${clock(step.at)} - ${timeAgo(step.at)}` : step.offchain ? 'no public signal' : '-'}
               </small>

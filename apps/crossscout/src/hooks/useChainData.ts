@@ -1,40 +1,28 @@
-import { useEffect, useState } from 'react';
-import type { MailboxView, RollupView } from '@cross-scout/sdk';
+import { skipToken, useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { Page } from '../lib/nav';
 
-export function useChainData(page: Page, chainId: number | null, refreshVersion: number) {
-  const [mailbox, setMailbox] = useState<MailboxView | null>(null);
-  const [rollup, setRollup] = useState<RollupView | null>(null);
-  const [loading, setLoading] = useState(false);
+export function useChainData(page: Page, chainId: number | null) {
+  const mailboxActive = chainId != null && (page === 'mailbox' || page === 'rollupDetail');
+  const rollupActive = chainId != null && page === 'rollupDetail';
 
-  useEffect(() => {
-    if (chainId == null || (page !== 'mailbox' && page !== 'rollupDetail')) return;
-    let active = true;
-    setLoading(true);
-    setMailbox(null);
-    if (page === 'rollupDetail') setRollup(null);
+  const mailbox = useQuery({
+    queryKey: ['mailbox', chainId],
+    queryFn: chainId == null ? skipToken : () => api.getMailbox(chainId),
+    enabled: mailboxActive,
+  });
 
-    const requests: Promise<unknown>[] = [
-      api.getMailbox(chainId).then((view) => {
-        if (active) setMailbox(view);
-      }),
-    ];
-    if (page === 'rollupDetail') {
-      requests.push(
-        api.getRollup(chainId).then((view) => {
-          if (active) setRollup(view);
-        }),
-      );
-    }
+  const rollup = useQuery({
+    queryKey: ['rollup', chainId],
+    queryFn: chainId == null ? skipToken : () => api.getRollup(chainId),
+    enabled: rollupActive,
+  });
 
-    void Promise.allSettled(requests).then(() => {
-      if (active) setLoading(false);
-    });
-    return () => {
-      active = false;
-    };
-  }, [chainId, page, refreshVersion]);
-
-  return { mailbox, rollup, loading };
+  return {
+    mailbox: mailbox.data ?? null,
+    rollup: rollup.data ?? null,
+    loading:
+      (mailboxActive && mailbox.isPending) ||
+      (rollupActive && rollup.isPending),
+  };
 }

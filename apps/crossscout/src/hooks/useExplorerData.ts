@@ -1,169 +1,111 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  ActivityPoint,
-  AssetVolume,
-  Deposit,
-  NetworkStats,
-  NetworkView,
-  RouteVolume,
-  StreamEvent,
-  Superblock,
-  Withdrawal,
-  Xt,
-} from '@cross-scout/sdk';
+import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { StreamEvent, Xt } from '@cross-scout/sdk';
 import type { AnalyticsWindow } from '../lib/api';
 import { api } from '../lib/api';
 import type { Page } from '../lib/nav';
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+const POLL_INTERVAL_MS = 15_000;
 
-function firstError(results: PromiseSettledResult<unknown>[]): string | null {
-  const failed = results.find((result) => result.status === 'rejected');
-  return failed?.status === 'rejected' ? errorMessage(failed.reason) : null;
-}
-
-function sortXts(xts: Xt[]): Xt[] {
-  return [...xts].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-}
-
-function upsertXt(xts: Xt[], xt: Xt): Xt[] {
-  return sortXts([xt, ...xts.filter((item) => item.xtHash !== xt.xtHash)]).slice(0, 200);
-}
-
-export function useExplorerData(
-  page: Page,
-  analyticsWindow: AnalyticsWindow,
-  onSuperblockUpdate: (superblock: Superblock) => void,
-) {
-  const [stats, setStats] = useState<NetworkStats | null>(null);
-  const [xts, setXts] = useState<Xt[]>([]);
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
-  const [activity, setActivity] = useState<ActivityPoint[]>([]);
-  const [routes, setRoutes] = useState<RouteVolume[]>([]);
-  const [assets, setAssets] = useState<AssetVolume[]>([]);
-  const [networkView, setNetworkView] = useState<NetworkView | null>(null);
+export function useExplorerData(page: Page, analyticsWindow: AnalyticsWindow) {
+  const queryClient = useQueryClient();
   const [streamUp, setStreamUp] = useState(false);
-  const [coreLoading, setCoreLoading] = useState(true);
-  const [bridgeLoading, setBridgeLoading] = useState(false);
-  const [networkLoading, setNetworkLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshVersion, setRefreshVersion] = useState(0);
-  const loadedCore = useRef(false);
-  const coreReady = stats != null;
+  const [liveXts, setLiveXts] = useState<Xt[]>([]);
+  const recentXtsActive = page === 'rollups' || page === 'rollupDetail';
 
-  const refreshCore = useCallback(async (showLoading: boolean, xtLimit: number | null) => {
-    if (showLoading) setCoreLoading(true);
+  const stats = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => api.getStats(),
+    refetchInterval: streamUp ? false : POLL_INTERVAL_MS,
+  });
 
-    const statsRequest = api
-      .getStats()
-      .then(setStats)
-      .finally(() => {
-        if (showLoading) setCoreLoading(false);
-      });
-    const requests: Array<Promise<unknown>> = [statsRequest];
-    if (xtLimit != null) {
-      requests.push(api.listXts({ limit: xtLimit }).then(({ items }) => setXts(sortXts(items))));
-    }
-    const results = await Promise.allSettled(requests);
-    setError(firstError(results));
-  }, []);
+  const recentXts = useQuery({
+    queryKey: ['recentXts'],
+    queryFn: () => api.listXts({ limit: 100 }).then(({ items }) => items),
+    enabled: recentXtsActive,
+    refetchInterval: recentXtsActive && !streamUp ? POLL_INTERVAL_MS : false,
+  });
 
-  useEffect(() => {
-    const xtLimit = page === 'overview' ? 20 : page === 'rollups' || page === 'rollupDetail' ? 100 : null;
-    const showLoading = !loadedCore.current;
-    loadedCore.current = true;
-    void refreshCore(showLoading, xtLimit);
-    const id = window.setInterval(() => {
-      void refreshCore(false, xtLimit);
-    }, 15_000);
-    return () => window.clearInterval(id);
-  }, [page, refreshCore]);
+  const analytics = useQuery({
+    queryKey: ['analytics', analyticsWindow],
+    queryFn: async () => {
+      const [activity, routes, assets] = await Promise.all([
+        api.getActivity({ window: analyticsWindow }),
+        api.getRoutes(analyticsWindow),
+        api.getAssets(analyticsWindow),
+      ]);
+      return { activity, routes, assets };
+    },
+    enabled: page === 'overview',
+    refetchInterval: page === 'overview' ? 30_000 : false,
+  });
 
-  const refreshAnalytics = useCallback(async () => {
-    await Promise.allSettled([
-      api.getActivity({ window: analyticsWindow }).then(setActivity),
-      api.getRoutes(analyticsWindow).then(setRoutes),
-      api.getAssets(analyticsWindow).then(setAssets),
-    ]);
-  }, [analyticsWindow]);
+  const bridge = useQuery({
+    queryKey: ['bridge'],
+    queryFn: async () => {
+      const [deposits, withdrawals] = await Promise.all([
+        api.listDeposits({ limit: 100 }).then(({ items }) => items),
+        api.listWithdrawals({ limit: 100 }).then(({ items }) => items),
+      ]);
+      return { deposits, withdrawals };
+    },
+    enabled: page === 'bridge',
+    refetchInterval: page === 'bridge' ? POLL_INTERVAL_MS : false,
+  });
 
-  useEffect(() => {
-    if (page !== 'overview' || !coreReady) return;
-    void refreshAnalytics();
-    const id = window.setInterval(() => {
-      void refreshAnalytics();
-    }, 30_000);
-    return () => window.clearInterval(id);
-  }, [coreReady, page, refreshAnalytics]);
-
-  const refreshBridge = useCallback(async (showLoading: boolean) => {
-    if (showLoading) setBridgeLoading(true);
-    await Promise.allSettled([
-      api.listDeposits({ limit: 100 }).then(({ items }) => setDeposits(items)),
-      api.listWithdrawals({ limit: 100 }).then(({ items }) => setWithdrawals(items)),
-    ]);
-    if (showLoading) setBridgeLoading(false);
-  }, []);
+  const network = useQuery({
+    queryKey: ['network'],
+    queryFn: () => api.getNetwork(),
+  });
 
   useEffect(() => {
-    if (page !== 'bridge') return;
-    void refreshBridge(true);
-    const id = window.setInterval(() => {
-      void refreshBridge(false);
-    }, 15_000);
-    return () => window.clearInterval(id);
-  }, [page, refreshBridge]);
+    const stream = api.stream((event: StreamEvent) => {
+      if (event.type === 'newXt' || event.type === 'xtUpdated') {
+        setLiveXts((current) =>
+          [event.xt, ...current.filter((item) => item.xtHash !== event.xt.xtHash)]
+            .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+            .slice(0, 50),
+        );
+        queryClient.setQueryData<Xt[]>(['recentXts'], (current) =>
+          current
+            ? [event.xt, ...current.filter((item) => item.xtHash !== event.xt.xtHash)]
+                .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+                .slice(0, 100)
+            : current,
+        );
+        void queryClient.invalidateQueries({ queryKey: ['xt', event.xt.xtHash] });
+        void queryClient.invalidateQueries({ queryKey: ['mailbox'] });
+        void queryClient.invalidateQueries({ queryKey: ['rollup'] });
+      } else {
+        queryClient.setQueryData(['superblock', event.superblock.number], event.superblock);
+        void queryClient.invalidateQueries({ queryKey: ['superblocks'] });
+        void queryClient.invalidateQueries({ queryKey: ['network'] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['stats'] });
+    }, setStreamUp);
 
-  useEffect(() => {
-    if (!coreReady) return;
-    let active = true;
-    void api
-      .getNetwork()
-      .then((view) => {
-        if (active) setNetworkView(view);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (active) setNetworkLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [coreReady]);
-
-  useEffect(() => {
-    const stream = api.stream(
-      (event: StreamEvent) => {
-        if (event.type === 'newXt' || event.type === 'xtUpdated') {
-          setXts((current) => upsertXt(current, event.xt));
-        } else {
-          onSuperblockUpdate(event.superblock);
-        }
-        setRefreshVersion((current) => current + 1);
-        void api.getStats().then(setStats).catch(() => undefined);
-      },
-      setStreamUp,
-    );
     return () => stream.close();
-  }, [onSuperblockUpdate]);
+  }, [queryClient]);
+
+  const firstError = [
+    stats.error,
+    recentXts.error,
+  ].find((error) => error != null);
 
   return {
-    stats,
-    xts,
-    deposits,
-    withdrawals,
-    activity,
-    routes,
-    assets,
-    networkView,
+    stats: stats.data ?? null,
+    xts: recentXts.data ?? [],
+    deposits: bridge.data?.deposits ?? [],
+    withdrawals: bridge.data?.withdrawals ?? [],
+    activity: analytics.data?.activity ?? [],
+    routes: analytics.data?.routes ?? [],
+    assets: analytics.data?.assets ?? [],
+    networkView: network.data ?? null,
+    liveXts,
     streamUp,
-    coreLoading,
-    bridgeLoading,
-    networkLoading,
-    error,
-    refreshVersion,
+    coreLoading: stats.isPending,
+    bridgeLoading: bridge.isPending && page === 'bridge',
+    networkLoading: network.isPending,
+    error: firstError instanceof Error ? firstError.message : firstError ? String(firstError) : null,
   };
 }

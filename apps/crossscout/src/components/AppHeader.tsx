@@ -96,7 +96,12 @@ export function AppHeader({
               </button>
               {switcherOpen && (
                 <>
-                  <div className="menu-backdrop" onClick={() => setSwitcherOpen(false)} />
+                  <button
+                    type="button"
+                    className="menu-backdrop"
+                    aria-label="Close rollup switcher"
+                    onClick={() => setSwitcherOpen(false)}
+                  />
                   <div className="switcher-menu">
                     <p className="mono">Indexed rollups</p>
                     {chains.map((chain) => (

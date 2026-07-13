@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type { Xt } from '@cross-scout/sdk';
 import { api } from '../lib/api';
 import type { XtFilter } from '../lib/status';
@@ -10,82 +11,48 @@ export function usePaginatedXts({
   active,
   filter,
   automaticRefresh,
-  liveXt,
+  liveXts,
   polling,
 }: {
   active: boolean;
   filter: XtFilter;
   automaticRefresh: boolean;
-  liveXt: Xt | null;
+  liveXts: Xt[];
   polling: boolean;
 }) {
-  const [items, setItems] = useState<Xt[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined]);
   const [pageIndex, setPageIndex] = useState(0);
-  const [pollVersion, setPollVersion] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const loadedRequest = useRef<string | null>(null);
-  const wasAutomatic = useRef(automaticRefresh);
   const cursor = cursorHistory[pageIndex];
 
-  useEffect(() => {
-    if (!active) return;
-    let current = true;
-    const request = `${filter}:${pageIndex}:${cursor ?? ''}`;
-    const showLoading = loadedRequest.current !== request;
-    if (showLoading) setLoading(true);
-    setError(null);
-    void api
-      .listXts({
+  const page = useQuery({
+    queryKey: ['xts', filter, cursor ?? null],
+    queryFn: () =>
+      api.listXts({
         limit: PAGE_SIZE,
         cursor,
         status: filter === 'all' ? undefined : filter,
-      })
-      .then((result) => {
-        if (!current) return;
-        loadedRequest.current = request;
-        setItems(result.items);
-        setNextCursor(result.nextCursor);
-      })
-      .catch((reason: unknown) => {
-        if (current) setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
-        if (current && showLoading) setLoading(false);
-      });
-    return () => {
-      current = false;
-    };
-  }, [active, cursor, filter, pageIndex, pollVersion]);
+      }),
+    enabled: active,
+    placeholderData: keepPreviousData,
+    refetchInterval:
+      active && automaticRefresh && polling && pageIndex === 0 ? POLL_INTERVAL_MS : false,
+  });
 
-  useEffect(() => {
-    if (!active || !automaticRefresh || pageIndex !== 0 || liveXt == null) return;
-    setItems((current) => {
-      const remaining = current.filter((item) => item.xtHash !== liveXt.xtHash);
-      const matches = filter === 'all' || liveXt.status === filter;
-      if (!matches) return remaining.length === current.length ? current : remaining;
-      return [liveXt, ...remaining]
-        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-        .slice(0, PAGE_SIZE);
-    });
-  }, [active, automaticRefresh, filter, liveXt, pageIndex]);
+  const items = useMemo(() => {
+    const fetched = page.data?.items ?? [];
+    if (!automaticRefresh || pageIndex !== 0 || liveXts.length === 0) return fetched;
 
-  useEffect(() => {
-    if (!active || !automaticRefresh || !polling || pageIndex !== 0) return;
-    const id = window.setInterval(() => setPollVersion((current) => current + 1), POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [active, automaticRefresh, pageIndex, polling]);
+    const updatedHashes = new Set(liveXts.map((item) => item.xtHash));
+    return [
+      ...liveXts.filter((item) => filter === 'all' || item.status === filter),
+      ...fetched.filter((item) => !updatedHashes.has(item.xtHash)),
+    ]
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, PAGE_SIZE);
+  }, [automaticRefresh, filter, liveXts, page.data?.items, pageIndex]);
 
-  useEffect(() => {
-    if (active && automaticRefresh && !wasAutomatic.current) {
-      setPollVersion((current) => current + 1);
-    }
-    wasAutomatic.current = automaticRefresh;
-  }, [active, automaticRefresh]);
-
-  const showOlder = useCallback(() => {
+  const showOlder = () => {
+    const nextCursor = page.data?.nextCursor;
     if (nextCursor == null) return;
     setCursorHistory((current) => {
       const next = current.slice(0, pageIndex + 1);
@@ -93,26 +60,25 @@ export function usePaginatedXts({
       return next;
     });
     setPageIndex((current) => current + 1);
-  }, [nextCursor, pageIndex]);
+  };
 
-  const showNewer = useCallback(() => {
-    setPageIndex((current) => Math.max(0, current - 1));
-  }, []);
+  const showNewer = () => setPageIndex((current) => Math.max(0, current - 1));
 
-  const resetPagination = useCallback(() => {
+  const resetPagination = () => {
     setCursorHistory([undefined]);
     setPageIndex(0);
-  }, []);
+  };
 
   return {
     items,
     page: pageIndex + 1,
-    loading,
-    error,
+    loading: page.isPending || page.isPlaceholderData,
+    error: page.error instanceof Error ? page.error.message : null,
     hasNewer: pageIndex > 0,
-    hasOlder: nextCursor != null,
+    hasOlder: page.data?.nextCursor != null,
     showNewer,
     showOlder,
     resetPagination,
+    refetch: page.refetch,
   };
 }

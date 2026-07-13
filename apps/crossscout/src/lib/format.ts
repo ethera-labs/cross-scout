@@ -59,6 +59,12 @@ export function timeAgo(iso: string): string {
 }
 
 const numberFormatter = new Intl.NumberFormat('en-US');
+const clockFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
 
 export function fmt(n: number): string {
   return numberFormatter.format(Math.round(n));
@@ -77,12 +83,7 @@ export function clock(iso: string | null | undefined): string {
   if (!iso) return '-';
   const time = Date.parse(iso);
   if (!Number.isFinite(time)) return '-';
-  return new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(time);
+  return clockFormatter.format(time);
 }
 
 export function formatDurationMs(ms: number | null | undefined): string {

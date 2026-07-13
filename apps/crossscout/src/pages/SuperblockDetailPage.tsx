@@ -6,6 +6,8 @@ import { clock, fmt, formatDurationMs, shortHex, timeAgo } from '../lib/format';
 import { statusVar, superblockLabels } from '../lib/status';
 import { LogoIcon } from '../ui/icons';
 
+const SUPERBLOCK_ORDER: SuperblockStatus[] = ['proposed', 'validated', 'finalized'];
+
 export function SuperblockDetailPage({
   sb,
   loading,
@@ -17,8 +19,7 @@ export function SuperblockDetailPage({
   chains: Map<number, ChainView>;
   back: () => void;
 }) {
-  const order: SuperblockStatus[] = ['proposed', 'validated', 'finalized'];
-  const current = sb ? order.indexOf(sb.status) : -1;
+  const current = sb ? SUPERBLOCK_ORDER.indexOf(sb.status) : -1;
   const age = sb?.finalizedAt ?? sb?.validatedAt ?? sb?.proposedAt;
 
   if (!sb) {
@@ -45,14 +46,14 @@ export function SuperblockDetailPage({
         </div>
         <StatusPill status={sb.status} large />
         <div className="ladder">
-          {order.map((status, idx) => (
+          {SUPERBLOCK_ORDER.map((status, idx) => (
             <div className="ladder-step" key={status}>
               <span
                 className={idx <= current ? 'reached' : ''}
                 style={{ background: idx <= current ? statusVar[status] : undefined }}
               />
               <strong>{superblockLabels[status]}</strong>
-              {idx < order.length - 1 && <i className={idx < current ? 'reached' : ''} />}
+              {idx < SUPERBLOCK_ORDER.length - 1 && <i className={idx < current ? 'reached' : ''} />}
             </div>
           ))}
         </div>

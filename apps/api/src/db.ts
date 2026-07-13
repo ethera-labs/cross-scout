@@ -1,6 +1,6 @@
 // Postgres access via Bun's built-in SQL client. Each function returns SDK
-// DTOs, mapped from snake_case rows. Filters use null-guarded predicates so one
-// parameterized query covers the optional-filter cases.
+// DTOs, mapped from snake_case rows. Optional filters are added only when
+// present so each query plan can use the matching index.
 
 import { SQL } from 'bun';
 import type {
@@ -77,16 +77,22 @@ export async function listXts(p: ListXtsQuery): Promise<XtPage> {
   const cursorHash = cursorHashRaw ? fromHex(cursorHashRaw) : null;
 
   const rows = await sql`
-    select distinct on (x.updated_at, x.xt_hash) x.*
+    select x.*
     from xts x
-    ${token != null ? sql`join transfers tr on tr.session = x.xt_hash and tr.token = ${token}` : sql``}
-    where (${status}::text is null or x.status = ${status})
-      and (${chain}::int is null or x.src_chain = ${chain} or x.dst_chain = ${chain})
-      and (${cursorTs}::timestamptz is null
-           or x.updated_at < ${cursorTs}::timestamptz
-           or (x.updated_at = ${cursorTs}::timestamptz
-               and ${cursorHash}::bytea is not null and x.xt_hash < ${cursorHash}::bytea))
-      and (${address}::bytea is null or x.sender = ${address}::bytea or x.receiver = ${address}::bytea)
+    where true
+      ${status != null ? sql`and x.status = ${status}` : sql``}
+      ${chain != null ? sql`and (x.src_chain = ${chain} or x.dst_chain = ${chain})` : sql``}
+      ${address != null ? sql`and (x.sender = ${address} or x.receiver = ${address})` : sql``}
+      ${token != null ? sql`and exists (
+        select 1 from transfers tr where tr.token = ${token} and tr.session = x.xt_hash
+      )` : sql``}
+      ${
+        cursorTs == null
+          ? sql``
+          : cursorHash == null
+            ? sql`and x.updated_at < ${cursorTs}::timestamptz`
+            : sql`and (x.updated_at, x.xt_hash) < (${cursorTs}::timestamptz, ${cursorHash})`
+      }
     order by x.updated_at desc, x.xt_hash desc
     limit ${limit + 1}
   `;
@@ -122,13 +128,17 @@ export async function listDeposits(p: ListBridgeOpsQuery): Promise<DepositPage> 
 
   const rows = await sql`
     select * from deposits
-    where (${status}::text is null or status = ${status})
-      and (${chain}::int is null or l2_chain_id = ${chain})
-      and (${address}::bytea is null or sender = ${address}::bytea or receiver = ${address}::bytea)
-      and (${cursorTs}::timestamptz is null
-           or updated_at < ${cursorTs}::timestamptz
-           or (updated_at = ${cursorTs}::timestamptz
-               and ${cursorHash}::bytea is not null and source_hash < ${cursorHash}::bytea))
+    where true
+      ${status != null ? sql`and status = ${status}` : sql``}
+      ${chain != null ? sql`and l2_chain_id = ${chain}` : sql``}
+      ${address != null ? sql`and (sender = ${address} or receiver = ${address})` : sql``}
+      ${
+        cursorTs == null
+          ? sql``
+          : cursorHash == null
+            ? sql`and updated_at < ${cursorTs}::timestamptz`
+            : sql`and (updated_at, source_hash) < (${cursorTs}::timestamptz, ${cursorHash})`
+      }
     order by updated_at desc, source_hash desc
     limit ${limit}
   `;
@@ -154,13 +164,17 @@ export async function listWithdrawals(p: ListBridgeOpsQuery): Promise<Withdrawal
 
   const rows = await sql`
     select * from withdrawals
-    where (${status}::text is null or status = ${status})
-      and (${chain}::int is null or l2_chain_id = ${chain})
-      and (${address}::bytea is null or sender = ${address}::bytea or target = ${address}::bytea)
-      and (${cursorTs}::timestamptz is null
-           or updated_at < ${cursorTs}::timestamptz
-           or (updated_at = ${cursorTs}::timestamptz
-               and ${cursorHash}::bytea is not null and withdrawal_hash < ${cursorHash}::bytea))
+    where true
+      ${status != null ? sql`and status = ${status}` : sql``}
+      ${chain != null ? sql`and l2_chain_id = ${chain}` : sql``}
+      ${address != null ? sql`and (sender = ${address} or target = ${address})` : sql``}
+      ${
+        cursorTs == null
+          ? sql``
+          : cursorHash == null
+            ? sql`and updated_at < ${cursorTs}::timestamptz`
+            : sql`and (updated_at, withdrawal_hash) < (${cursorTs}::timestamptz, ${cursorHash})`
+      }
     order by updated_at desc, withdrawal_hash desc
     limit ${limit}
   `;
@@ -204,8 +218,9 @@ export async function listSuperblocks(p: ListSuperblocksQuery): Promise<Superblo
   const [rows, countRows] = await Promise.all([
     sql`
       select * from superblocks
-      where (${status}::text is null or status = ${status})
-        and (${cursor}::bigint is null or number < ${cursor})
+      where true
+        ${status != null ? sql`and status = ${status}` : sql``}
+        ${cursor != null ? sql`and number < ${cursor}` : sql``}
       order by number desc
       limit ${limit + 1}`,
     sql`select status, count(*)::int as count from superblocks group by status`,

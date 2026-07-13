@@ -4,13 +4,6 @@ import { api } from '../lib/api';
 import type { SuperblockFilter } from '../lib/status';
 
 const PAGE_SIZE = 50;
-const OVERVIEW_SIZE = 5;
-
-function upsertLatest(superblocks: Superblock[], next: Superblock): Superblock[] {
-  return [next, ...superblocks.filter((item) => item.number !== next.number)]
-    .sort((a, b) => b.number - a.number)
-    .slice(0, OVERVIEW_SIZE);
-}
 
 const EMPTY_COUNTS: Record<SuperblockStatus, number> = {
   proposed: 0,
@@ -19,7 +12,6 @@ const EMPTY_COUNTS: Record<SuperblockStatus, number> = {
 };
 
 export function useSuperblocks(listActive: boolean, filter: SuperblockFilter) {
-  const [latest, setLatest] = useState<Superblock[]>([]);
   const [pageItems, setPageItems] = useState<Superblock[]>([]);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [total, setTotal] = useState(0);
@@ -29,19 +21,6 @@ export function useSuperblocks(listActive: boolean, filter: SuperblockFilter) {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    void api
-      .listSuperblocks({ limit: OVERVIEW_SIZE })
-      .then(({ items: recent }) => {
-        if (active) setLatest(recent);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const cursor = cursorHistory[pageIndex];
   useEffect(() => {
     if (!listActive) return;
@@ -92,13 +71,11 @@ export function useSuperblocks(listActive: boolean, filter: SuperblockFilter) {
     setPageIndex(0);
   }, []);
 
-  const applyUpdate = useCallback((superblock: Superblock) => {
-    setLatest((current) => upsertLatest(current, superblock));
+  const applyUpdate = useCallback((_superblock: Superblock) => {
     setRefreshVersion((current) => current + 1);
   }, []);
 
   return {
-    latest,
     items: pageItems,
     page: pageIndex + 1,
     total,

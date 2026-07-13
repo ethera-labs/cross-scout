@@ -11,7 +11,7 @@ export function NetworkPage({ view, loading }: { view: NetworkView | null; loadi
       <SectionTitle title="Shared Publisher" />
 
       {publisher == null ? (
-        <EmptyPanel>{loading ? 'loading network state...' : 'publisher feed not configured'}</EmptyPanel>
+        <EmptyPanel>{loading ? 'loading publisher state...' : 'publisher feed not configured'}</EmptyPanel>
       ) : (
         <>
           <div className="stats-grid small" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>

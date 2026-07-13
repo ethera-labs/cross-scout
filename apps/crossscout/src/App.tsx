@@ -10,10 +10,9 @@ import type { AnalyticsWindow } from './lib/api';
 import { api } from './lib/api';
 import { chainById, makeChains } from './lib/chains';
 import { chainName } from './lib/format';
-import type { Network, Page, Theme } from './lib/nav';
+import type { Page, Theme } from './lib/nav';
 import type { SuperblockFilter, XtFilter } from './lib/status';
 import { BridgePage } from './pages/BridgePage';
-import { InstancesPage } from './pages/InstancesPage';
 import { MailboxPage } from './pages/MailboxPage';
 import { NetworkPage } from './pages/NetworkPage';
 import { OverviewPage } from './pages/OverviewPage';
@@ -58,7 +57,6 @@ function filterXts(xts: Xt[], query: string): Xt[] {
 
 export function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
-  const [network, setNetwork] = useState<Network>('Mainnet');
   const [page, setPage] = useState<Page>('overview');
   const [query, setQuery] = useState('');
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -79,14 +77,9 @@ export function App() {
   const transactionPages = usePaginatedXts({
     active: page === 'txs',
     filter: xtFilter,
-    refreshVersion: explorer.refreshVersion,
     automaticRefresh: !transactionsPaused,
-  });
-  const sessionPages = usePaginatedXts({
-    active: page === 'instances',
-    filter: 'all',
-    refreshVersion: explorer.refreshVersion,
-    automaticRefresh: true,
+    liveXt: explorer.liveXt,
+    polling: !explorer.streamUp,
   });
   const chainData = useChainData(page, selectedChain, explorer.refreshVersion);
   const {
@@ -131,7 +124,6 @@ export function App() {
     const indexedXts = [
       ...recentXts,
       ...transactionPages.items,
-      ...sessionPages.items,
       ...(selectedDetail ? [selectedDetail.xt] : []),
     ];
     for (const xt of indexedXts) {
@@ -147,7 +139,7 @@ export function App() {
       if (host != null && b === host) return 1;
       return a - b;
     });
-  }, [deposits, recentXts, selectedDetail, sessionPages.items, stats, transactionPages.items, withdrawals]);
+  }, [deposits, recentXts, selectedDetail, stats, transactionPages.items, withdrawals]);
 
   const chains = useMemo(() => makeChains(chainIds, stats?.hostChain), [chainIds, stats?.hostChain]);
   const byId = useMemo(() => chainById(chains), [chains]);
@@ -269,20 +261,10 @@ export function App() {
     () => filterXts(transactionPages.items, normalizedQuery),
     [normalizedQuery, transactionPages.items],
   );
-  const filteredSessionXts = useMemo(
-    () => filterXts(sessionPages.items, normalizedQuery),
-    [normalizedQuery, sessionPages.items],
-  );
-
   const filteredSuperblocks = useMemo(
     () => filterSuperblocks(superblockPages.items, normalizedQuery),
     [normalizedQuery, superblockPages.items],
   );
-  const filteredLatestSuperblocks = useMemo(
-    () => filterSuperblocks(superblockPages.latest, normalizedQuery),
-    [normalizedQuery, superblockPages.latest],
-  );
-
   const filteredDeposits = useMemo(() => {
     if (!normalizedQuery) return deposits;
     return deposits.filter((deposit) =>
@@ -324,7 +306,6 @@ export function App() {
   const selectedXt = selectedHash
     ? selectedDetail?.xt ??
       transactionPages.items.find((xt) => xt.xtHash === selectedHash) ??
-      sessionPages.items.find((xt) => xt.xtHash === selectedHash) ??
       recentXts.find((xt) => xt.xtHash === selectedHash) ??
       null
     : null;
@@ -333,9 +314,7 @@ export function App() {
       ? superblockPages.error
       : page === 'txs'
         ? transactionPages.error
-        : page === 'instances'
-          ? sessionPages.error
-          : null;
+        : null;
 
   let content: ReactNode;
   switch (page) {
@@ -415,22 +394,6 @@ export function App() {
         />
       );
       break;
-    case 'instances':
-      content = (
-        <InstancesPage
-          xts={filteredSessionXts}
-          chains={byId}
-          onTx={goTx}
-          total={xtCounts.all}
-          page={sessionPages.page}
-          loading={sessionPages.loading}
-          hasNewer={sessionPages.hasNewer}
-          hasOlder={sessionPages.hasOlder}
-          onNewer={sessionPages.showNewer}
-          onOlder={sessionPages.showOlder}
-        />
-      );
-      break;
     case 'mailbox':
       content = (
         <MailboxPage
@@ -474,8 +437,6 @@ export function App() {
       content = (
         <OverviewPage
           stats={stats}
-          xts={filteredRecentXts}
-          superblocks={filteredLatestSuperblocks}
           activity={activity}
           routes={routes}
           assets={assets}
@@ -483,11 +444,8 @@ export function App() {
           setWindow={setAnalyticsWindow}
           chains={chains}
           byId={byId}
-          network={network}
           loading={coreLoading && !streamUp}
           onTxs={() => nav('txs')}
-          onTx={goTx}
-          onSuperblock={goSuperblock}
         />
       );
   }
@@ -498,8 +456,6 @@ export function App() {
         page={page}
         theme={theme}
         setTheme={setTheme}
-        network={network}
-        setNetwork={setNetwork}
         query={query}
         setQuery={setQuery}
         onSearchSubmit={searchJump}

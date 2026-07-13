@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Xt } from '@cross-scout/sdk';
 import { api } from '../lib/api';
 import type { XtFilter } from '../lib/status';
@@ -9,13 +9,15 @@ const POLL_INTERVAL_MS = 15_000;
 export function usePaginatedXts({
   active,
   filter,
-  refreshVersion,
   automaticRefresh,
+  liveXt,
+  polling,
 }: {
   active: boolean;
   filter: XtFilter;
-  refreshVersion: number;
   automaticRefresh: boolean;
+  liveXt: Xt | null;
+  polling: boolean;
 }) {
   const [items, setItems] = useState<Xt[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -24,15 +26,17 @@ export function usePaginatedXts({
   const [pollVersion, setPollVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadedRequest = useRef<string | null>(null);
+  const wasAutomatic = useRef(automaticRefresh);
   const cursor = cursorHistory[pageIndex];
-  const liveRefreshVersion = automaticRefresh && pageIndex === 0 ? refreshVersion : 0;
 
   useEffect(() => {
     if (!active) return;
     let current = true;
-    setLoading(true);
+    const request = `${filter}:${pageIndex}:${cursor ?? ''}`;
+    const showLoading = loadedRequest.current !== request;
+    if (showLoading) setLoading(true);
     setError(null);
-    setNextCursor(null);
     void api
       .listXts({
         limit: PAGE_SIZE,
@@ -41,6 +45,7 @@ export function usePaginatedXts({
       })
       .then((result) => {
         if (!current) return;
+        loadedRequest.current = request;
         setItems(result.items);
         setNextCursor(result.nextCursor);
       })
@@ -48,18 +53,37 @@ export function usePaginatedXts({
         if (current) setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {
-        if (current) setLoading(false);
+        if (current && showLoading) setLoading(false);
       });
     return () => {
       current = false;
     };
-  }, [active, cursor, filter, liveRefreshVersion, pageIndex, pollVersion]);
+  }, [active, cursor, filter, pageIndex, pollVersion]);
 
   useEffect(() => {
-    if (!active || !automaticRefresh || pageIndex !== 0) return;
+    if (!active || !automaticRefresh || pageIndex !== 0 || liveXt == null) return;
+    setItems((current) => {
+      const remaining = current.filter((item) => item.xtHash !== liveXt.xtHash);
+      const matches = filter === 'all' || liveXt.status === filter;
+      if (!matches) return remaining.length === current.length ? current : remaining;
+      return [liveXt, ...remaining]
+        .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+        .slice(0, PAGE_SIZE);
+    });
+  }, [active, automaticRefresh, filter, liveXt, pageIndex]);
+
+  useEffect(() => {
+    if (!active || !automaticRefresh || !polling || pageIndex !== 0) return;
     const id = window.setInterval(() => setPollVersion((current) => current + 1), POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [active, automaticRefresh, pageIndex]);
+  }, [active, automaticRefresh, pageIndex, polling]);
+
+  useEffect(() => {
+    if (active && automaticRefresh && !wasAutomatic.current) {
+      setPollVersion((current) => current + 1);
+    }
+    wasAutomatic.current = automaticRefresh;
+  }, [active, automaticRefresh]);
 
   const showOlder = useCallback(() => {
     if (nextCursor == null) return;

@@ -32,6 +32,10 @@ function upsertXt(xts: Xt[], xt: Xt): Xt[] {
   return sortXts([xt, ...xts.filter((item) => item.xtHash !== xt.xtHash)]).slice(0, 200);
 }
 
+function xtLimitFor(page: Page): number | null {
+  return page === 'rollups' || page === 'rollupDetail' ? 100 : null;
+}
+
 export function useExplorerData(
   page: Page,
   analyticsWindow: AnalyticsWindow,
@@ -45,6 +49,7 @@ export function useExplorerData(
   const [routes, setRoutes] = useState<RouteVolume[]>([]);
   const [assets, setAssets] = useState<AssetVolume[]>([]);
   const [networkView, setNetworkView] = useState<NetworkView | null>(null);
+  const [liveXt, setLiveXt] = useState<Xt | null>(null);
   const [streamUp, setStreamUp] = useState(false);
   const [coreLoading, setCoreLoading] = useState(true);
   const [bridgeLoading, setBridgeLoading] = useState(false);
@@ -72,15 +77,18 @@ export function useExplorerData(
   }, []);
 
   useEffect(() => {
-    const xtLimit = page === 'overview' ? 20 : page === 'rollups' || page === 'rollupDetail' ? 100 : null;
     const showLoading = !loadedCore.current;
     loadedCore.current = true;
-    void refreshCore(showLoading, xtLimit);
+    void refreshCore(showLoading, xtLimitFor(page));
+  }, [page, refreshCore]);
+
+  useEffect(() => {
+    if (streamUp) return;
     const id = window.setInterval(() => {
-      void refreshCore(false, xtLimit);
+      void refreshCore(false, xtLimitFor(page));
     }, 15_000);
     return () => window.clearInterval(id);
-  }, [page, refreshCore]);
+  }, [page, refreshCore, streamUp]);
 
   const refreshAnalytics = useCallback(async () => {
     await Promise.allSettled([
@@ -138,6 +146,7 @@ export function useExplorerData(
     const stream = api.stream(
       (event: StreamEvent) => {
         if (event.type === 'newXt' || event.type === 'xtUpdated') {
+          setLiveXt(event.xt);
           setXts((current) => upsertXt(current, event.xt));
         } else {
           onSuperblockUpdate(event.superblock);
@@ -159,6 +168,7 @@ export function useExplorerData(
     routes,
     assets,
     networkView,
+    liveXt,
     streamUp,
     coreLoading,
     bridgeLoading,

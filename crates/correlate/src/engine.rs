@@ -337,7 +337,8 @@ impl Correlator {
                 chains,
                 transitions,
             } => {
-                self.db
+                let canonical = self
+                    .db
                     .upsert_superblock_proposed(
                         *number,
                         root_claim,
@@ -351,6 +352,14 @@ impl Correlator {
                         ts,
                     )
                     .await?;
+                if !canonical {
+                    warn!(
+                        superblock_number = number,
+                        superblock_hash = %hash,
+                        "ignoring conflicting superblock number"
+                    );
+                    return Ok(());
+                }
                 for t in transitions {
                     self.db
                         .upsert_superblock_chain(

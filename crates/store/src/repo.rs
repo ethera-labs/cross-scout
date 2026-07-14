@@ -539,8 +539,8 @@ impl Db {
         l1_effective_gas_price_wei: Option<&U256>,
         l1_block: i64,
         proposed_at: DateTime<Utc>,
-    ) -> StoreResult<()> {
-        sqlx::query(
+    ) -> StoreResult<bool> {
+        let result = sqlx::query(
             r#"insert into superblocks
                  (number, root_claim, hash, parent_hash, game_address, l1_tx, l1_block,
                   l1_gas_used, l1_effective_gas_price_wei, status, proposed_at)
@@ -555,7 +555,8 @@ impl Db {
                  l1_gas_used  = coalesce(superblocks.l1_gas_used, excluded.l1_gas_used),
                  l1_effective_gas_price_wei = coalesce(superblocks.l1_effective_gas_price_wei,
                                                        excluded.l1_effective_gas_price_wei),
-                 proposed_at  = coalesce(superblocks.proposed_at, excluded.proposed_at)"#,
+                 proposed_at  = coalesce(superblocks.proposed_at, excluded.proposed_at)
+               where superblocks.hash = excluded.hash"#,
         )
         .bind(number)
         .bind(b256_bytes(root_claim))
@@ -569,7 +570,7 @@ impl Db {
         .bind(proposed_at)
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     pub async fn set_superblock_validated(
@@ -725,20 +726,22 @@ impl Db {
         period_id: i64,
         superblock_number: Option<i64>,
         seen_at: DateTime<Utc>,
-    ) -> StoreResult<()> {
-        sqlx::query(
+    ) -> StoreResult<bool> {
+        let result = sqlx::query(
             r#"insert into periods (period_id, superblock_number, first_seen_at, last_seen_at)
                values ($1,$2,$3,$3)
                on conflict (period_id) do update set
                  superblock_number = coalesce(periods.superblock_number, excluded.superblock_number),
-                 last_seen_at      = excluded.last_seen_at"#,
+                 last_seen_at      = excluded.last_seen_at
+               where periods.superblock_number is null
+                  or periods.superblock_number = excluded.superblock_number"#,
         )
         .bind(period_id)
         .bind(superblock_number)
         .bind(seen_at)
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     /// Append one publisher liveness snapshot. `ts` is the primary key, so a

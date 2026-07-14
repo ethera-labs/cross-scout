@@ -31,6 +31,7 @@ pub async fn run(db: Db, base_url: String, poll_ms: u64) {
     let url = format!("{}/stats", base_url.trim_end_matches('/'));
     let mut ticker = tokio::time::interval(Duration::from_millis(poll_ms));
     let mut last_prune: Option<Instant> = None;
+    let mut last_period_conflict: Option<(i64, i64)> = None;
     debug!(%url, "starting publisher stats poller");
 
     loop {
@@ -42,9 +43,26 @@ pub async fn run(db: Db, base_url: String, poll_ms: u64) {
                 continue;
             }
         };
-        if let Err(e) = record(&db, &stats).await {
-            warn!(error = %e, "publisher stats write failed");
-            continue;
+        match record(&db, &stats).await {
+            Ok(true) => last_period_conflict = None,
+            Ok(false) => {
+                let conflict = (
+                    int_field(&stats, "current_period_id"),
+                    int_field(&stats, "next_superblock_number"),
+                );
+                if last_period_conflict != Some(conflict) {
+                    warn!(
+                        period_id = conflict.0,
+                        next_superblock = conflict.1,
+                        "ignoring conflicting publisher period mapping"
+                    );
+                    last_period_conflict = Some(conflict);
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, "publisher stats write failed");
+                continue;
+            }
         }
         if last_prune.is_none_or(|at| at.elapsed() >= PRUNE_INTERVAL) {
             if let Err(e) = db.prune_snapshots(RETENTION_SECS).await {
@@ -66,14 +84,15 @@ async fn fetch(client: &reqwest::Client, url: &str) -> reqwest::Result<Value> {
         .await
 }
 
-async fn record(db: &Db, stats: &Value) -> cross_scout_store::StoreResult<()> {
+async fn record(db: &Db, stats: &Value) -> cross_scout_store::StoreResult<bool> {
     let now = chrono::Utc::now();
     let period_id = int_field(stats, "current_period_id");
     let next_superblock = int_field(stats, "next_superblock_number");
     let last_finalized = int_field(stats, "last_finalized_superblock");
 
     // The current period will produce the next superblock; record that mapping.
-    db.upsert_period(period_id, Some(next_superblock), now)
+    let period_is_canonical = db
+        .upsert_period(period_id, Some(next_superblock), now)
         .await?;
 
     db.insert_publisher_snapshot(
@@ -89,5 +108,5 @@ async fn record(db: &Db, stats: &Value) -> cross_scout_store::StoreResult<()> {
         int_field(stats, "pending_proof_superblocks") as i32,
     )
     .await?;
-    Ok(())
+    Ok(period_is_canonical)
 }

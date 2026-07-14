@@ -1,28 +1,21 @@
-import { useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { skipToken, useQuery } from '@tanstack/react-query';
 import type { Superblock, Xt } from '@cross-scout/sdk';
 import { AppHeader } from './components/AppHeader';
+import { AppRoutes } from './components/AppRoutes';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useChainData } from './hooks/useChainData';
+import { useChainViews } from './hooks/useChainViews';
 import { useExplorerData } from './hooks/useExplorerData';
 import { usePaginatedXts } from './hooks/usePaginatedXts';
+import { useRoute } from './hooks/useRoute';
+import { useSearchFilters } from './hooks/useSearchFilters';
 import { useSuperblocks } from './hooks/useSuperblocks';
 import type { AnalyticsWindow } from './lib/api';
 import { api } from './lib/api';
-import { chainById, makeChains } from './lib/chains';
-import { chainName } from './lib/format';
 import type { Page, Theme } from './lib/nav';
+import { routeHash, routeTitle } from './lib/nav';
 import type { SuperblockFilter, XtFilter } from './lib/status';
-import { BridgePage } from './pages/BridgePage';
-import { MailboxPage } from './pages/MailboxPage';
-import { NetworkPage } from './pages/NetworkPage';
-import { OverviewPage } from './pages/OverviewPage';
-import { RollupDetailPage } from './pages/RollupDetailPage';
-import { RollupsPage } from './pages/RollupsPage';
-import { SuperblockDetailPage } from './pages/SuperblockDetailPage';
-import { SuperblocksPage } from './pages/SuperblocksPage';
-import { TransactionsPage } from './pages/TransactionsPage';
-import { TxDetailPage } from './pages/TxDetailPage';
 
 const THEME_KEY = 'crossscout.theme';
 
@@ -32,42 +25,29 @@ function initialTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
-function filterSuperblocks(superblocks: Superblock[], query: string): Superblock[] {
-  if (!query) return superblocks;
-  return superblocks.filter((superblock) =>
-    [
-      superblock.number,
-      superblock.hash,
-      superblock.parentHash,
-      superblock.rootClaim,
-      superblock.l1Tx,
-    ]
-      .filter((value) => value != null)
-      .some((value) => String(value).toLowerCase().includes(query)),
-  );
-}
-
-function filterXts(xts: Xt[], query: string): Xt[] {
-  if (!query) return xts;
-  return xts.filter((xt) =>
-    [xt.xtHash, xt.sender, xt.receiver, xt.label, chainName(xt.srcChain), chainName(xt.dstChain)]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(query)),
-  );
-}
-
 export function App() {
+  const { route, navigate } = useRoute();
+  const page = route.page;
+  const selectedChain = route.chain ?? null;
+  const selectedHash = route.txHash ?? null;
+  const selectedSuperblockNumber = route.superblock ?? null;
   const [theme, setTheme] = useState<Theme>(initialTheme);
-  const [page, setPage] = useState<Page>('overview');
   const [query, setQuery] = useState('');
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [analyticsWindow, setAnalyticsWindow] = useState<AnalyticsWindow>('24h');
-  const [selectedChain, setSelectedChain] = useState<number | null>(null);
-  const [selectedHash, setSelectedHash] = useState<string | null>(null);
-  const [selectedSuperblockNumber, setSelectedSuperblockNumber] = useState<number | null>(null);
   const [xtFilter, setXtFilter] = useState<XtFilter>('all');
   const [sbFilter, setSbFilter] = useState<SuperblockFilter>('all');
   const [transactionsPaused, setTransactionsPaused] = useState(false);
+  const [searchNote, setSearchNote] = useState<string | null>(null);
+  const searchSeq = useRef(0);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [page]);
+
+  useEffect(() => {
+    document.title = routeTitle(route);
+  }, [route]);
 
   const superblockPages = useSuperblocks(page === 'superblocks', sbFilter);
   const explorer = useExplorerData(page, analyticsWindow);
@@ -124,71 +104,39 @@ export function App() {
     setTheme(next);
   };
 
-  const chainIds = useMemo(() => {
-    const ids = new Set<number>();
-    if (stats?.hostChain) ids.add(stats.hostChain);
-    for (const route of stats?.routes ?? []) {
-      ids.add(route.srcChain);
-      ids.add(route.dstChain);
-    }
-    const indexedXts = [
-      ...recentXts,
-      ...transactionPages.items,
-      ...(selectedDetail ? [selectedDetail.xt] : []),
-    ];
-    for (const xt of indexedXts) {
-      for (const id of xt.chains) ids.add(id);
-      if (xt.srcChain != null) ids.add(xt.srcChain);
-      if (xt.dstChain != null) ids.add(xt.dstChain);
-    }
-    for (const deposit of deposits) ids.add(deposit.l2ChainId);
-    for (const withdrawal of withdrawals) ids.add(withdrawal.l2ChainId);
-    const host = stats?.hostChain;
-    return [...ids].sort((a, b) => {
-      if (host != null && a === host) return -1;
-      if (host != null && b === host) return 1;
-      return a - b;
-    });
-  }, [deposits, recentXts, selectedDetail, stats, transactionPages.items, withdrawals]);
-
-  const chains = useMemo(() => makeChains(chainIds, stats?.hostChain), [chainIds, stats?.hostChain]);
-  const byId = useMemo(() => chainById(chains), [chains]);
-  const defaultChain = chainIds.find((id) => id !== stats?.hostChain) ?? chainIds[0] ?? null;
+  const { chainIds, chains, byId, defaultChain } = useChainViews({
+    stats,
+    recentXts,
+    transactionXts: transactionPages.items,
+    selectedDetail,
+    deposits,
+    withdrawals,
+  });
   const activeChain =
     selectedChain != null && chainIds.includes(selectedChain) ? selectedChain : defaultChain;
   const chainData = useChainData(page, activeChain);
   const { mailbox, rollup, loading: paneLoading } = chainData;
 
-  const nav = (next: Page) => {
-    setPage(next);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const goTx = (xtOrHash: Xt | string) => {
-    setSelectedHash(typeof xtOrHash === 'string' ? xtOrHash : xtOrHash.xtHash);
-    setPage('txDetail');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const goSuperblock = (sbOrNumber: Superblock | number) => {
-    setSelectedSuperblockNumber(typeof sbOrNumber === 'number' ? sbOrNumber : sbOrNumber.number);
-    setPage('superblockDetail');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const goRollup = (chain: number) => {
-    setSelectedChain(chain);
-    setPage('rollupDetail');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const nav = (next: Page) => navigate({ page: next });
+  const goTx = (xtOrHash: Xt | string) =>
+    navigate({ page: 'txDetail', txHash: typeof xtOrHash === 'string' ? xtOrHash : xtOrHash.xtHash });
+  const goSuperblock = (sbOrNumber: Superblock | number) =>
+    navigate({
+      page: 'superblockDetail',
+      superblock: typeof sbOrNumber === 'number' ? sbOrNumber : sbOrNumber.number,
+    });
+  const goRollup = (chain: number) => navigate({ page: 'rollupDetail', chain });
 
   const searchJump = () => {
     const q = query.trim();
     if (!q) return;
     const norm = /^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$/.test(q) ? `0x${q}` : q;
+    const seq = ++searchSeq.current;
+    setSearchNote(null);
     void api
       .search(norm)
       .then(({ results }) => {
+        if (seq !== searchSeq.current) return;
         for (const result of results) {
           if (result.type === 'xt') {
             goTx(result.xt.xtHash);
@@ -207,51 +155,26 @@ export function App() {
             return;
           }
         }
+        setSearchNote(`no results for "${q}"`);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (seq === searchSeq.current) setSearchNote('search failed - indexer API unreachable');
+      });
   };
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredRecentXts = useMemo(
-    () => filterXts(recentXts, normalizedQuery),
-    [normalizedQuery, recentXts],
-  );
-  const filteredTransactionXts = useMemo(
-    () => filterXts(transactionPages.items, normalizedQuery),
-    [normalizedQuery, transactionPages.items],
-  );
-  const filteredSuperblocks = useMemo(
-    () => filterSuperblocks(superblockPages.items, normalizedQuery),
-    [normalizedQuery, superblockPages.items],
-  );
-  const filteredDeposits = useMemo(() => {
-    if (!normalizedQuery) return deposits;
-    return deposits.filter((deposit) =>
-      [
-        deposit.sourceHash,
-        deposit.sender,
-        deposit.receiver,
-        chainName(deposit.l2ChainId),
-        deposit.status,
-      ]
-        .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
-    );
-  }, [deposits, normalizedQuery]);
+  const updateQuery = (next: string) => {
+    setQuery(next);
+    setSearchNote(null);
+  };
 
-  const filteredWithdrawals = useMemo(() => {
-    if (!normalizedQuery) return withdrawals;
-    return withdrawals.filter((withdrawal) =>
-      [
-        withdrawal.withdrawalHash,
-        withdrawal.sender,
-        withdrawal.target,
-        chainName(withdrawal.l2ChainId),
-        withdrawal.status,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedQuery)),
-    );
-  }, [normalizedQuery, withdrawals]);
+  const { filteredRecentXts, filteredTransactionXts, filteredSuperblocks, filteredDeposits, filteredWithdrawals } =
+    useSearchFilters(query, {
+      recentXts,
+      transactionXts: transactionPages.items,
+      superblocks: superblockPages.items,
+      deposits,
+      withdrawals,
+    });
 
   const xtCounts: Record<XtFilter, number> = {
     all: stats?.totalXts ?? 0,
@@ -283,140 +206,6 @@ export function App() {
         ? transactionPages.error
         : null;
 
-  let content: ReactNode;
-  switch (page) {
-    case 'txs':
-      content = (
-        <TransactionsPage
-          xts={filteredTransactionXts}
-          chains={byId}
-          filter={xtFilter}
-          setFilter={selectXtFilter}
-          onTx={goTx}
-          live={streamUp}
-          paused={transactionsPaused}
-          setPaused={setTransactionUpdatesPaused}
-          counts={xtCounts}
-          total={transactionTotal}
-          page={transactionPages.page}
-          loading={transactionPages.loading}
-          hasNewer={transactionPages.hasNewer}
-          hasOlder={transactionPages.hasOlder}
-          onNewer={transactionPages.showNewer}
-          onOlder={transactionPages.showOlder}
-        />
-      );
-      break;
-    case 'bridge':
-      content = (
-        <BridgePage
-          deposits={filteredDeposits}
-          withdrawals={filteredWithdrawals}
-          chains={byId}
-          loading={bridgeLoading}
-        />
-      );
-      break;
-    case 'txDetail':
-      content = (
-        <TxDetailPage
-          xt={selectedXt}
-          detail={selectedDetail}
-          loading={detail.isPending}
-          chains={byId}
-          back={() => nav('txs')}
-          onSuperblock={goSuperblock}
-        />
-      );
-      break;
-    case 'network':
-      content = <NetworkPage view={networkView} loading={networkLoading} />;
-      break;
-    case 'superblocks':
-      content = (
-        <SuperblocksPage
-          superblocks={filteredSuperblocks}
-          chains={byId}
-          filter={sbFilter}
-          setFilter={selectSuperblockFilter}
-          onSuperblock={goSuperblock}
-          total={superblockPages.total}
-          counts={superblockPages.counts}
-          page={superblockPages.page}
-          loading={superblockPages.loading}
-          hasNewer={superblockPages.hasNewer}
-          hasOlder={superblockPages.hasOlder}
-          onNewer={superblockPages.showNewer}
-          onOlder={superblockPages.showOlder}
-        />
-      );
-      break;
-    case 'superblockDetail':
-      content = (
-        <SuperblockDetailPage
-          sb={selectedSuperblock}
-          loading={superblockDetail.isPending}
-          chains={byId}
-          back={() => nav('superblocks')}
-        />
-      );
-      break;
-    case 'mailbox':
-      content = (
-        <MailboxPage
-          chainIds={chainIds}
-          chains={byId}
-          hostChain={stats?.hostChain ?? null}
-          selectedChain={activeChain}
-          mailbox={mailbox}
-          loading={paneLoading}
-          onSelectChain={setSelectedChain}
-        />
-      );
-      break;
-    case 'rollups':
-      content = (
-        <RollupsPage
-          chainIds={chainIds}
-          chains={byId}
-          hostChain={stats?.hostChain ?? null}
-          xts={filteredRecentXts}
-          onSelectChain={goRollup}
-        />
-      );
-      break;
-    case 'rollupDetail':
-      content = (
-        <RollupDetailPage
-          chainId={activeChain}
-          chains={byId}
-          hostChain={stats?.hostChain ?? null}
-          xts={filteredRecentXts}
-          mailbox={mailbox}
-          rollup={rollup}
-          loading={paneLoading}
-          back={() => nav('rollups')}
-          onSelectXt={goTx}
-        />
-      );
-      break;
-    default:
-      content = (
-        <OverviewPage
-          stats={stats}
-          activity={activity}
-          routes={routes}
-          assets={assets}
-          window={analyticsWindow}
-          setWindow={setAnalyticsWindow}
-          chains={chains}
-          byId={byId}
-          loading={coreLoading && !streamUp}
-          onTxs={() => nav('txs')}
-        />
-      );
-  }
-
   return (
     <div className="app-shell" data-theme={theme}>
       <AppHeader
@@ -424,19 +213,63 @@ export function App() {
         theme={theme}
         setTheme={selectTheme}
         query={query}
-        setQuery={setQuery}
+        setQuery={updateQuery}
         onSearchSubmit={searchJump}
+        searchNote={searchNote}
         chains={chains}
         switcherOpen={switcherOpen}
         setSwitcherOpen={setSwitcherOpen}
-        nav={nav}
         onSelectRollup={goRollup}
         activeChainId={page === 'rollupDetail' ? activeChain : null}
         showNetwork={networkView?.publisher != null}
       />
       <main>
         {(error ?? pageError) && <div className="no-results">{error ?? pageError}</div>}
-        {content}
+        <ErrorBoundary resetKey={routeHash(route)}>
+          <AppRoutes
+            page={page}
+            filteredTransactionXts={filteredTransactionXts}
+            byId={byId}
+            xtFilter={xtFilter}
+            selectXtFilter={selectXtFilter}
+            streamUp={streamUp}
+            transactionsPaused={transactionsPaused}
+            setTransactionUpdatesPaused={setTransactionUpdatesPaused}
+            xtCounts={xtCounts}
+            transactionTotal={transactionTotal}
+            transactionPages={transactionPages}
+            filteredDeposits={filteredDeposits}
+            filteredWithdrawals={filteredWithdrawals}
+            bridgeLoading={bridgeLoading}
+            selectedXt={selectedXt}
+            selectedDetail={selectedDetail}
+            detail={detail}
+            nav={nav}
+            goSuperblock={goSuperblock}
+            networkView={networkView}
+            networkLoading={networkLoading}
+            filteredSuperblocks={filteredSuperblocks}
+            sbFilter={sbFilter}
+            selectSuperblockFilter={selectSuperblockFilter}
+            superblockPages={superblockPages}
+            selectedSuperblock={selectedSuperblock}
+            superblockDetail={superblockDetail}
+            chainIds={chainIds}
+            stats={stats}
+            activeChain={activeChain}
+            mailbox={mailbox}
+            paneLoading={paneLoading}
+            filteredRecentXts={filteredRecentXts}
+            rollup={rollup}
+            chains={chains}
+            activity={activity}
+            routes={routes}
+            assets={assets}
+            analyticsWindow={analyticsWindow}
+            setAnalyticsWindow={setAnalyticsWindow}
+            coreLoading={coreLoading}
+          />
+        </ErrorBoundary>
       </main>
     </div>
   );

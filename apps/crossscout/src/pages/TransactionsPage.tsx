@@ -12,7 +12,6 @@ export function TransactionsPage({
   chains,
   filter,
   setFilter,
-  onTx,
   live,
   paused,
   setPaused,
@@ -29,7 +28,6 @@ export function TransactionsPage({
   chains: Map<number, ChainView>;
   filter: XtFilter;
   setFilter: (filter: XtFilter) => void;
-  onTx: (xt: Xt) => void;
   live: boolean;
   paused: boolean;
   setPaused: (paused: boolean) => void;
@@ -63,6 +61,9 @@ export function TransactionsPage({
           {label}
           <b />
         </button>
+        <span className="sr-only" role="status">
+          {paused ? 'live updates paused' : live ? 'live updates streaming' : 'stream reconnecting, polling every 15 seconds'}
+        </span>
       </div>
       <div className="page-toolbar">
         <div className="tx-toolbar-left">
@@ -83,7 +84,7 @@ export function TransactionsPage({
         {loading ? (
           <EmptyPanel>loading transactions...</EmptyPanel>
         ) : xts.length ? (
-          xts.map((xt) => <TxTableRow key={xt.xtHash} xt={xt} chains={chains} onClick={() => onTx(xt)} />)
+          xts.map((xt) => <TxTableRow key={xt.xtHash} xt={xt} chains={chains} />)
         ) : (
           <EmptyPanel>no transactions on this page</EmptyPanel>
         )}

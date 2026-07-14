@@ -296,6 +296,10 @@
     @apply shrink-0 rounded-chip border border-cs-line px-2 py-[3px] text-[11px] text-cs-faint;
   }
 
+  .search-note {
+    @apply m-0 px-1 pt-2 text-xs text-cs-faint;
+  }
+
   .search-anchor {
     @apply relative z-[45] mx-auto max-w-[1400px];
   }
@@ -574,7 +578,7 @@
   }
 
   .copy-button {
-    @apply inline-flex shrink-0 cursor-pointer items-center text-cs-faint transition-colors duration-150;
+    @apply relative z-[1] inline-flex shrink-0 cursor-pointer items-center border-0 bg-transparent p-0 text-cs-faint transition-colors duration-150;
   }
 
   .copy-button:hover {
@@ -583,6 +587,18 @@
 
   .copy-button.copied {
     @apply text-cs-ok;
+  }
+
+  .linked-row {
+    @apply relative;
+  }
+
+  .row-link {
+    @apply absolute inset-0;
+  }
+
+  .row-link:focus-visible {
+    @apply outline-none ring-2 ring-cs-accent/45;
   }
 
   .detail-field {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { formatEther } from 'viem';
 import type { ActivityPoint, AssetVolume, NetworkStats, RouteVolume } from '@cross-scout/sdk';
 import { AreaChart } from '../components/AreaChart';
@@ -44,6 +44,19 @@ export function OverviewPage({
   const [metric, setMetric] = useState<ActivityMetric>('transactions');
   const siteUrl = import.meta.env.VITE_NETWORK_SITE_URL as string | undefined;
 
+  const activityPoints = useMemo(
+    () =>
+      activity.map((point) => ({
+        ts: point.bucket,
+        value: metric === 'transactions' ? point.count : Number(formatEther(BigInt(point.volumeWei))),
+      })),
+    [activity, metric],
+  );
+  const formatActivityValue = useCallback(
+    (value: number) => (metric === 'transactions' ? fmt(value) : `${compactNumber(value)} ETH`),
+    [metric],
+  );
+
   return (
     <div className="overview-page">
       <div className="overview-head">
@@ -56,7 +69,7 @@ export function OverviewPage({
               Visit Ethera <span aria-hidden="true">-&gt;</span>
             </Button>
           )}
-          <div className="live-pill mono">
+          <div className="live-pill mono" role="status">
             <span />
             {loading ? 'LOADING' : `LIVE - ${stats ? chainName(stats.hostChain) : 'Indexer'}`}
           </div>
@@ -125,13 +138,9 @@ export function OverviewPage({
         }
       />
       <AreaChart
-        points={activity.map((point) => ({
-          ts: point.bucket,
-          value: metric === 'transactions' ? point.count : Number(formatEther(BigInt(point.volumeWei))),
-        }))}
-        formatValue={(value) =>
-          metric === 'transactions' ? fmt(value) : `${compactNumber(value)} ETH`
-        }
+        points={activityPoints}
+        formatValue={formatActivityValue}
+        label={metric === 'transactions' ? 'Transactions over time' : 'Volume over time'}
         empty="no activity in the current window"
       />
 

@@ -17,9 +17,9 @@ function copyText(value: string): Promise<void> {
 }
 
 /**
- * Copy-to-clipboard affordance. A `span` rather than a `button` so it can sit
- * inside clickable table rows without invalid nesting; clicks never bubble to
- * the row.
+ * Copy-to-clipboard affordance. A native button; inside linked rows it sits
+ * above the row's overlay link (z-index) and stops propagation so a copy
+ * never triggers the row navigation.
  */
 export function CopyButton({ value }: { value: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
@@ -31,31 +31,21 @@ export function CopyButton({ value }: { value: string | null | undefined }) {
   }, [copied]);
 
   if (!value) return null;
-  const copy = () => {
-    void copyText(value)
-      .then(() => setCopied(true))
-      .catch(() => undefined);
-  };
 
   return (
-    <span
-      role="button"
-      tabIndex={0}
+    <button
+      type="button"
       title="Copy"
       aria-label={`Copy ${value}`}
       className={copied ? 'copy-button copied' : 'copy-button'}
       onClick={(event) => {
         event.stopPropagation();
-        copy();
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        event.stopPropagation();
-        copy();
+        void copyText(value)
+          .then(() => setCopied(true))
+          .catch(() => undefined);
       }}
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
-    </span>
+    </button>
   );
 }

@@ -1,23 +1,23 @@
+import { memo } from 'react';
 import type { MailboxMessage, Superblock, Xt } from '@cross-scout/sdk';
 import type { ChainView } from '../lib/chains';
 import { chainView } from '../lib/chains';
 import { fmtMaybe, formatDurationMs, formatEthCompact, shortHex, stageName, timeAgo } from '../lib/format';
+import { superblockHref, txHref } from '../lib/nav';
 import { CopyButton } from '../ui/CopyButton';
 import { ChainStack, Glyph, StatusPill } from './primitives';
 
-export function TxRow({
+export const TxRow = memo(function TxRow({
   xt,
   chains,
-  onClick,
 }: {
   xt: Xt;
   chains: Map<number, ChainView>;
-  onClick: () => void;
 }) {
   const src = chainView(chains, xt.srcChain);
   const dst = chainView(chains, xt.dstChain);
   return (
-    <button type="button" className="tx-row" onClick={onClick}>
+    <a className="tx-row" href={txHref(xt.xtHash)}>
       <div className="tx-route">
         <Glyph chain={src} />
         <span className="route-line" />
@@ -42,23 +42,16 @@ export function TxRow({
       <div className="tx-status">
         <StatusPill status={xt.status} />
       </div>
-    </button>
+    </a>
   );
-}
+});
 
-export function TxTableRow({
-  xt,
-  chains,
-  onClick,
-}: {
-  xt: Xt;
-  chains: Map<number, ChainView>;
-  onClick: () => void;
-}) {
+export const TxTableRow = memo(function TxTableRow({ xt, chains }: { xt: Xt; chains: Map<number, ChainView> }) {
   const src = chainView(chains, xt.srcChain);
   const dst = chainView(chains, xt.dstChain);
   return (
-    <button type="button" className="tx-table-row" onClick={onClick}>
+    <div className="tx-table-row linked-row">
+      <a className="row-link" href={txHref(xt.xtHash)} aria-label={`Transaction ${shortHex(xt.xtHash, 6, 6)}`} />
       <span className="mono tx-time">{timeAgo(xt.updatedAt)}</span>
       <span className="tx-hash-cell">
         <strong className="mono">{shortHex(xt.xtHash, 6, 6)}</strong>
@@ -88,21 +81,14 @@ export function TxTableRow({
       <span className="tx-status-cell">
         <StatusPill status={xt.status} />
       </span>
-    </button>
+    </div>
   );
-}
+});
 
-export function SuperblockRow({
-  sb,
-  chains,
-  onClick,
-}: {
-  sb: Superblock;
-  chains: Map<number, ChainView>;
-  onClick: () => void;
-}) {
+export const SuperblockRow = memo(function SuperblockRow({ sb, chains }: { sb: Superblock; chains: Map<number, ChainView> }) {
   return (
-    <button type="button" className="dense-table-row sb-table-row" onClick={onClick}>
+    <div className="dense-table-row sb-table-row linked-row">
+      <a className="row-link" href={superblockHref(sb.number)} aria-label={`Superblock #${sb.number}`} />
       <span className="tx-hash-cell">
         <strong className="mono">#{sb.number}</strong>
         <CopyButton value={sb.hash} />
@@ -122,9 +108,9 @@ export function SuperblockRow({
         <CopyButton value={sb.rootClaim} />
       </span>
       <span className="mono tx-time right">{sb.proposedAt ? timeAgo(sb.proposedAt) : '-'}</span>
-    </button>
+    </div>
   );
-}
+});
 
 export function MessageRow({ message, chains }: { message: MailboxMessage; chains: Map<number, ChainView> }) {
   const src = chainView(chains, message.srcChain);

@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { formatEther } from 'viem';
 import type { RouteVolume } from '@cross-scout/sdk';
 import type { ChainView } from '../lib/chains';
 import { chainById, chainView } from '../lib/chains';
-import { fmt } from '../lib/format';
+import { fmt, formatEthCompact } from '../lib/format';
 import { EmptyPanel, Glyph } from './primitives';
 
 export type FlowMode = 'volume' | 'transfers';
@@ -20,11 +20,9 @@ function routeWeight(route: RouteVolume, mode: FlowMode): number {
   return mode === 'transfers' ? route.transfers : Number(formatEther(BigInt(route.valueWei)));
 }
 
-function weightLabel(value: number, mode: FlowMode): string {
-  if (mode === 'transfers') return fmt(value);
-  if (value === 0) return '0 ETH';
-  if (value < 0.0001) return `${value.toExponential(2)} ETH`;
-  return `${value.toFixed(4)} ETH`;
+function weightLabel(entry: SideEntry, mode: FlowMode): string {
+  if (mode === 'transfers') return fmt(entry.value);
+  return formatEthCompact(entry.wei.toString());
 }
 
 function pctLabel(value: number, total: number): string {
@@ -37,11 +35,13 @@ function pctLabel(value: number, total: number): string {
 interface WeightedRoute {
   route: RouteVolume;
   weight: number;
+  wei: bigint;
 }
 
 interface SideEntry {
   chain: ChainView;
   value: number;
+  wei: bigint;
 }
 
 /**
@@ -54,15 +54,16 @@ function sideEntries(
   side: 'srcChain' | 'dstChain',
   byId: Map<number, ChainView>,
 ): SideEntry[] {
-  const totals = new Map<number, number>();
-  for (const { route, weight } of weighted) {
-    totals.set(route[side], (totals.get(route[side]) ?? 0) + weight);
+  const totals = new Map<number, { value: number; wei: bigint }>();
+  for (const { route, weight, wei } of weighted) {
+    const prev = totals.get(route[side]) ?? { value: 0, wei: 0n };
+    totals.set(route[side], { value: prev.value + weight, wei: prev.wei + wei });
   }
   for (const route of ghosts) {
-    if (!totals.has(route[side])) totals.set(route[side], 0);
+    if (!totals.has(route[side])) totals.set(route[side], { value: 0, wei: 0n });
   }
   return [...totals.entries()]
-    .map(([id, value]) => ({ chain: chainView(byId, id), value }))
+    .map(([id, total]) => ({ chain: chainView(byId, id), value: total.value, wei: total.wei }))
     .sort((a, b) => b.value - a.value);
 }
 
@@ -209,7 +210,7 @@ function FlowColumn({
             <Glyph chain={node.chain} size={24} />
             <strong>{node.chain.name}</strong>
             <span className="flow-spacer" />
-            <span className="mono">{weightLabel(node.value, mode)}</span>
+            <span className="mono">{weightLabel(node, mode)}</span>
             <span className="flow-pct">{pctLabel(node.value, total)}</span>
           </>
         );
@@ -237,7 +238,7 @@ function FlowColumn({
   );
 }
 
-export function FlowChart({
+export const FlowChart = memo(function FlowChart({
   routes,
   chains,
   mode,
@@ -253,7 +254,7 @@ export function FlowChart({
   const weighted: WeightedRoute[] = [];
   for (const route of routes) {
     const weight = routeWeight(route, mode);
-    if (weight > 0) weighted.push({ route, weight });
+    if (weight > 0) weighted.push({ route, weight, wei: BigInt(route.valueWei) });
   }
   // Routes with traffic but zero weight under the active metric (token-only
   // legs in volume mode) still draw as hairlines so connectivity stays
@@ -315,6 +316,7 @@ export function FlowChart({
             preserveAspectRatio="none"
             width="100%"
             height={height}
+            aria-hidden="true"
           >
             <defs>
               <linearGradient id="flowGrad" x1="0" y1="0" x2="1" y2="0">
@@ -370,4 +372,4 @@ export function FlowChart({
       </div>
     </div>
   );
-}
+});

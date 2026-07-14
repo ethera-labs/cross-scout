@@ -59,6 +59,20 @@ export function useExplorerData(page: Page, analyticsWindow: AnalyticsWindow) {
   });
 
   useEffect(() => {
+    const pendingKeys = new Set<string>();
+    let flushTimer: number | undefined;
+    const flush = () => {
+      flushTimer = undefined;
+      for (const key of pendingKeys) void queryClient.invalidateQueries({ queryKey: [key] });
+      pendingKeys.clear();
+    };
+    // Broad invalidations coalesce so a busy stream refreshes aggregates at
+    // most once per window instead of once per event.
+    const queueInvalidate = (...keys: string[]) => {
+      for (const key of keys) pendingKeys.add(key);
+      flushTimer ??= window.setTimeout(flush, 2000);
+    };
+
     const stream = api.stream((event: StreamEvent) => {
       if (event.type === 'newXt' || event.type === 'xtUpdated') {
         setLiveXts((current) =>
@@ -74,17 +88,17 @@ export function useExplorerData(page: Page, analyticsWindow: AnalyticsWindow) {
             : current,
         );
         void queryClient.invalidateQueries({ queryKey: ['xt', event.xt.xtHash] });
-        void queryClient.invalidateQueries({ queryKey: ['mailbox'] });
-        void queryClient.invalidateQueries({ queryKey: ['rollup'] });
+        queueInvalidate('mailbox', 'rollup', 'stats');
       } else {
         queryClient.setQueryData(['superblock', event.superblock.number], event.superblock);
-        void queryClient.invalidateQueries({ queryKey: ['superblocks'] });
-        void queryClient.invalidateQueries({ queryKey: ['network'] });
+        queueInvalidate('superblocks', 'network', 'stats');
       }
-      void queryClient.invalidateQueries({ queryKey: ['stats'] });
     }, setStreamUp);
 
-    return () => stream.close();
+    return () => {
+      stream.close();
+      if (flushTimer != null) window.clearTimeout(flushTimer);
+    };
   }, [queryClient]);
 
   const firstError = [

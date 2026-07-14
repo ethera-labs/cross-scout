@@ -3,7 +3,7 @@ import { formatEthCompact, formatTokenAmount, shortHex, withUsd } from './format
 
 // ERC-20 logo URL template with {chainId}/{address} placeholders, injected via
 // env. Empty leaves rows on a generated glyph instead of a remote image.
-const logoTemplate = (import.meta.env.VITE_TOKEN_LOGO_URL_TEMPLATE ?? '').trim();
+const logoTemplate = (import.meta.env.VITE_ASSET_LOGO_URL_TEMPLATE ?? '').trim();
 
 /** Resolve a transfer's token metadata, preferring an exact chain match. */
 export function tokenFor(transfer: Transfer, tokens: TokenMeta[]): TokenMeta | null {

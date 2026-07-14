@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import type { NetworkView } from '@cross-scout/sdk';
 import { AreaChart } from '../components/AreaChart';
 import { EmptyPanel, SectionTitle } from '../components/primitives';
@@ -5,6 +6,7 @@ import { clock, fmt, timeAgo } from '../lib/format';
 
 export function NetworkPage({ view, loading }: { view: NetworkView | null; loading: boolean }) {
   const publisher = view?.publisher ?? null;
+  const queuePoints = useMemo(() => (view?.series ?? []).map((s) => ({ ts: s.ts, value: s.queued })), [view]);
 
   return (
     <div className="overview-page">
@@ -65,8 +67,9 @@ export function NetworkPage({ view, loading }: { view: NetworkView | null; loadi
 
           <SectionTitle title="Queue Depth - 6h" />
           <AreaChart
-            points={(view?.series ?? []).map((s) => ({ ts: s.ts, value: s.queued }))}
+            points={queuePoints}
             formatValue={fmt}
+            label="Publisher queue depth over time"
             empty="no queue depth data in the current window"
           />
 

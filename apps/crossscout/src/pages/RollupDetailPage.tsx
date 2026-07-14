@@ -14,7 +14,6 @@ export function RollupDetailPage({
   rollup,
   loading,
   back,
-  onSelectXt,
 }: {
   chainId: number | null;
   chains: Map<number, ChainView>;
@@ -24,7 +23,6 @@ export function RollupDetailPage({
   rollup: RollupView | null;
   loading: boolean;
   back: () => void;
-  onSelectXt: (hash: string) => void;
 }) {
   const chain = chainView(chains, chainId);
   const related = xts.filter(
@@ -79,7 +77,7 @@ export function RollupDetailPage({
       {rollup?.recentXts.length || related.length ? (
         <div className="tx-feed">
           {(rollup?.recentXts.length ? rollup.recentXts : related).slice(0, 8).map((xt) => (
-            <TxRow key={xt.xtHash} xt={xt} chains={chains} onClick={() => onSelectXt(xt.xtHash)} />
+            <TxRow key={xt.xtHash} xt={xt} chains={chains} />
           ))}
         </div>
       ) : (

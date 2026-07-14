@@ -3,19 +3,18 @@ import { Glyph } from '../components/primitives';
 import type { ChainView } from '../lib/chains';
 import { chainView } from '../lib/chains';
 import { fmt, formatEthCompact, sumWei } from '../lib/format';
+import { rollupHref } from '../lib/nav';
 
 export function RollupsPage({
   chainIds,
   chains,
   hostChain,
   xts,
-  onSelectChain,
 }: {
   chainIds: number[];
   chains: Map<number, ChainView>;
   hostChain: number | null;
   xts: Xt[];
-  onSelectChain: (chain: number) => void;
 }) {
   return (
     <>
@@ -32,12 +31,7 @@ export function RollupsPage({
           );
           const volume = formatEthCompact(sumWei(related.map((xt) => xt.valueWei)));
           return (
-            <button
-              type="button"
-              className={current ? 'rollup-card current' : 'rollup-card'}
-              key={id}
-              onClick={() => onSelectChain(id)}
-            >
+            <a className={current ? 'rollup-card current' : 'rollup-card'} key={id} href={rollupHref(id)}>
               <div className="rollup-card-head">
                 <Glyph chain={chain} size={40} />
                 <div>
@@ -52,7 +46,7 @@ export function RollupsPage({
                 <div><span>Status</span><strong className="mono">{current ? 'host' : 'active'}</strong></div>
                 <div><span>Mailbox</span><strong className="ok-text">{related.length ? 'observed' : 'pending'}</strong></div>
               </div>
-            </button>
+            </a>
           );
         })}
       </div>

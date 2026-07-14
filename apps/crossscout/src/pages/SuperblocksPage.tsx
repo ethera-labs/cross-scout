@@ -12,7 +12,6 @@ export function SuperblocksPage({
   chains,
   filter,
   setFilter,
-  onSuperblock,
   total,
   counts,
   page,
@@ -26,7 +25,6 @@ export function SuperblocksPage({
   chains: Map<number, ChainView>;
   filter: SuperblockFilter;
   setFilter: (filter: SuperblockFilter) => void;
-  onSuperblock: (sb: Superblock) => void;
   total: number;
   counts: Record<SuperblockStatus, number>;
   page: number;
@@ -70,9 +68,7 @@ export function SuperblocksPage({
         {loading ? (
           <EmptyPanel>loading superblocks...</EmptyPanel>
         ) : rows.length ? (
-          rows.map((sb) => (
-            <SuperblockRow key={sb.number} sb={sb} chains={chains} onClick={() => onSuperblock(sb)} />
-          ))
+          rows.map((sb) => <SuperblockRow key={sb.number} sb={sb} chains={chains} />)
         ) : (
           <EmptyPanel>no superblocks on this page</EmptyPanel>
         )}

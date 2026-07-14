@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { formatEther, formatUnits } from 'viem';
 import type { ActivityPoint, AssetVolume } from '@cross-scout/sdk';
@@ -45,15 +45,29 @@ export function TopAssets({
     enabled: active != null,
   });
 
+  const formatSeriesValue = useCallback(
+    (value: number) => {
+      if (!active || !active.token) return `${compactNumber(value)} ETH`;
+      const symbol = active.token.symbol;
+      return symbol ? `${compactNumber(value)} ${symbol}` : compactNumber(value);
+    },
+    [active],
+  );
+
+  const seriesPoints = useMemo(
+    () =>
+      (series.data ?? []).map((point) => ({
+        ts: point.bucket,
+        value: active?.token
+          ? Number(formatUnits(BigInt(point.volumeWei), active.token.decimals ?? 18))
+          : Number(formatEther(BigInt(point.volumeWei))),
+      })),
+    [series.data, active],
+  );
+
   if (assets.length === 0) {
     return <EmptyPanel>no transferred assets in the current window</EmptyPanel>;
   }
-
-  const formatSeriesValue = (value: number) => {
-    if (!active || !active.token) return `${compactNumber(value)} ETH`;
-    const symbol = active.token.symbol;
-    return symbol ? `${compactNumber(value)} ${symbol}` : compactNumber(value);
-  };
 
   return (
     <div className="assets-layout">
@@ -91,13 +105,9 @@ export function TopAssets({
           <span className="mono">{window}</span>
         </div>
         <AreaChart
-          points={(series.data ?? []).map((point) => ({
-            ts: point.bucket,
-            value: active?.token
-              ? Number(formatUnits(BigInt(point.volumeWei), active.token.decimals ?? 18))
-              : Number(formatEther(BigInt(point.volumeWei))),
-          }))}
+          points={seriesPoints}
           formatValue={formatSeriesValue}
+          label={active ? `${assetSymbol(active)} activity over time` : 'Asset activity over time'}
           empty={series.isPending ? 'loading asset activity...' : 'no activity for this asset in the window'}
         />
       </div>

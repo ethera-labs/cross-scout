@@ -5,6 +5,7 @@ import { MailboxTableRow } from '../components/rows';
 import { chainView, type ChainView } from '../lib/chains';
 import { fmt } from '../lib/format';
 import { mailboxAnchor } from '../lib/mailbox';
+import { mailboxHref } from '../lib/nav';
 import { Button } from '../ui/Button';
 
 type DirectionFilter = 'all' | 'in' | 'out';
@@ -22,7 +23,6 @@ export function MailboxPage({
   selectedChain,
   mailbox,
   loading,
-  onSelectChain,
 }: {
   chainIds: number[];
   chains: Map<number, ChainView>;
@@ -30,7 +30,6 @@ export function MailboxPage({
   selectedChain: number | null;
   mailbox: MailboxView | null;
   loading: boolean;
-  onSelectChain: (chain: number) => void;
 }) {
   const [direction, setDirection] = useState<DirectionFilter>('all');
   const host = chainView(chains, hostChain);
@@ -53,18 +52,13 @@ export function MailboxPage({
           {visibleIds.map((id) => {
             const chain = chainView(chains, id);
             return (
-              <button
-                type="button"
-                key={id}
-                className={id === activeId ? 'side-item active' : 'side-item'}
-                onClick={() => onSelectChain(id)}
-              >
+              <a key={id} className={id === activeId ? 'side-item active' : 'side-item'} href={mailboxHref(id)}>
                 <Glyph chain={chain} />
                 <span>
                   <strong>{chain.name}</strong>
                   <small className="mono">{id}</small>
                 </span>
-              </button>
+              </a>
             );
           })}
         </aside>

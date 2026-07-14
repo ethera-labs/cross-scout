@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import { EmptyPanel } from './primitives';
 
 export interface AreaPoint {
@@ -30,13 +30,15 @@ function axisTime(iso: string, dayScale: boolean): string {
  * FlowChart: no chart dependency, CSS-variable colors, hover guide with a
  * nearest-point readout.
  */
-export function AreaChart({
+export const AreaChart = memo(function AreaChart({
   points,
   formatValue,
+  label,
   empty = 'no activity in the current window',
 }: {
   points: AreaPoint[];
   formatValue: (value: number) => string;
+  label: string;
   empty?: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
@@ -100,6 +102,7 @@ export function AreaChart({
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         role="img"
+        aria-label={label}
       >
         <defs>
           <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
@@ -156,4 +159,4 @@ export function AreaChart({
       )}
     </div>
   );
-}
+});

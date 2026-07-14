@@ -19,12 +19,15 @@ function chainGlyph(name: string, id: number): string {
 }
 
 export function makeChains(ids: number[], hostChain?: number): ChainView[] {
-  return ids.map((id, index) => {
+  return ids.map((id) => {
     const name = chainName(id);
     return {
       id,
       name,
-      color: palette[index % palette.length]!,
+      // Palette slot keyed by chain id so a chain keeps its color as more
+      // chains come into view; two chains may share a color, which is an
+      // accepted tradeoff for stable identity.
+      color: palette[id % palette.length]!,
       glyph: chainGlyph(name, id),
       current: hostChain === id,
     };

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { ChainView } from '../lib/chains';
 import type { Page, Theme } from '../lib/nav';
+import { pageHref } from '../lib/nav';
 import { MoonIcon, SearchIcon, SunIcon } from '../ui/icons';
 import { Glyph } from './primitives';
 
@@ -11,10 +12,10 @@ export function AppHeader({
   query,
   setQuery,
   onSearchSubmit,
+  searchNote,
   chains,
   switcherOpen,
   setSwitcherOpen,
-  nav,
   onSelectRollup,
   activeChainId,
   showNetwork,
@@ -25,10 +26,10 @@ export function AppHeader({
   query: string;
   setQuery: (query: string) => void;
   onSearchSubmit: () => void;
+  searchNote: string | null;
   chains: ChainView[];
   switcherOpen: boolean;
   setSwitcherOpen: (open: boolean) => void;
-  nav: (page: Page) => void;
   onSelectRollup: (chain: number) => void;
   activeChainId: number | null;
   showNetwork: boolean;
@@ -36,6 +37,7 @@ export function AppHeader({
   const host = chains.find((chain) => chain.current) ?? chains[0];
   const active = chains.find((chain) => chain.id === activeChainId) ?? host;
   const searchRef = useRef<HTMLInputElement>(null);
+  const switcherButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -67,32 +69,46 @@ export function AppHeader({
     <>
       <header className="topbar">
         <div className="topbar-inner">
-          <button type="button" className="brand" onClick={() => nav('overview')}>
+          <a className="brand" href="#/">
             <img className="cs-logo-mark" src="/favicon.svg" width={36} height={36} alt="" aria-hidden="true" />
             <span>
               <strong>CrossScout</strong>
               <small className="mono">ETHERA NETWORK</small>
             </span>
-          </button>
+          </a>
           <nav>
             {navLinks.map(([item, label]) => (
-              <button
-                type="button"
+              <a
                 key={item}
                 className={activeNav(item) ? 'nav-link active' : 'nav-link'}
-                onClick={() => nav(item)}
+                href={pageHref(item)}
               >
                 {label}
-              </button>
+              </a>
             ))}
           </nav>
           <div className="topbar-spacer" />
           {active && (
-            <div className="switcher">
-              <button type="button" className="switcher-button" onClick={() => setSwitcherOpen(!switcherOpen)}>
+            <div
+              className="switcher"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && switcherOpen) {
+                  setSwitcherOpen(false);
+                  switcherButtonRef.current?.focus();
+                }
+              }}
+            >
+              <button
+                type="button"
+                ref={switcherButtonRef}
+                className="switcher-button"
+                aria-expanded={switcherOpen}
+                aria-haspopup="true"
+                onClick={() => setSwitcherOpen(!switcherOpen)}
+              >
                 <Glyph chain={active} size={20} />
                 <strong className="mono">{active.name}</strong>
-                <span>v</span>
+                <span aria-hidden="true">v</span>
               </button>
               {switcherOpen && (
                 <>
@@ -150,6 +166,7 @@ export function AppHeader({
             <SearchIcon />
             <input
               ref={searchRef}
+              aria-label="Search by tx hash, session, superblock or address"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -159,6 +176,11 @@ export function AppHeader({
             />
             <span className="mono">CMD K</span>
           </div>
+          {searchNote && (
+            <p className="search-note mono" role="status">
+              {searchNote}
+            </p>
+          )}
         </div>
       </div>
     </>
